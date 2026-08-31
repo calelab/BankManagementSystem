@@ -1,0 +1,19 @@
+# Qt / CMake build files
+build/
+cmake-build-*/
+
+# Qt Creator user settings
+*.user
+*.user.*
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# macOS
+.DS_Store
+
+# Qt Creator / clangd
+.qtc_clangd/
