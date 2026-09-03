@@ -14,11 +14,14 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateEdit>
+#include <QDialog>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTableView>
 #include <QTemporaryDir>
@@ -64,6 +67,7 @@ class MainWindowTest : public QObject
 
 private slots:
     void definesRequiredDesignerControlsAndDefaults();
+    void validatesDialogInputsBeforeAccepting();
     void completesMainWorkflowThroughUiConnections();
     void filtersClosedDepositsAndDisablesWithdrawal();
 };
@@ -129,6 +133,20 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
              QAbstractItemView::ScrollPerPixel);
     QVERIFY(!transactionsTable->wordWrap());
 
+    auto *depositorsTable = requiredChild<QTableView>(&window, "allDepositorsTableView");
+    auto *depositorsHeader = depositorsTable->horizontalHeader();
+    QVERIFY(!depositorsHeader->stretchLastSection());
+    QCOMPARE(depositorsHeader->sectionResizeMode(0), QHeaderView::Interactive);
+    QCOMPARE(depositorsHeader->sectionResizeMode(2), QHeaderView::Stretch);
+    QCOMPARE(depositorsHeader->sectionResizeMode(7), QHeaderView::Interactive);
+    QVERIFY(depositorsTable->columnWidth(0) >= 115);
+    QVERIFY(depositorsTable->columnWidth(1) >= 120);
+    QVERIFY(depositorsTable->columnWidth(3) >= 85);
+    QVERIFY(depositorsTable->columnWidth(4) >= 120);
+    QVERIFY(depositorsTable->columnWidth(5) >= 105);
+    QVERIFY(depositorsTable->columnWidth(6) >= 100);
+    QVERIFY(depositorsTable->columnWidth(7) >= 135);
+
     auto *auditTable = requiredChild<QTableView>(&window, "auditLogTableView");
     QCOMPARE(auditTable->model()->headerData(3, Qt::Horizontal).toString(),
              QStringLiteral("操作类型"));
@@ -176,6 +194,70 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
     QVERIFY(requiredChild<QObject>(&withdrawDialog, "withdrawPayoutLabel"));
 }
 
+void MainWindowTest::validatesDialogInputsBeforeAccepting()
+{
+    DepositDialog depositDialog(QDate(2026, 1, 1));
+    QSignalSpy depositAccepted(&depositDialog, &QDialog::accepted);
+    requiredChild<QLineEdit>(&depositDialog, "depositAmountEdit")->setText(QStringLiteral("0"));
+    requiredChild<QPushButton>(&depositDialog, "confirmDepositButton")->click();
+    QCOMPARE(depositAccepted.count(), 0);
+    QVERIFY(!requiredChild<QLabel>(&depositDialog, "depositMessageLabel")->text().isEmpty());
+    requiredChild<QLineEdit>(&depositDialog, "depositAmountEdit")
+        ->setText(QStringLiteral("100.00"));
+    requiredChild<QPushButton>(&depositDialog, "confirmDepositButton")->click();
+    QCOMPARE(depositAccepted.count(), 1);
+
+    ProfileDialog profileDialog{QString(), QString()};
+    QSignalSpy profileAccepted(&profileDialog, &QDialog::accepted);
+    requiredChild<QPushButton>(&profileDialog, "confirmProfileButton")->click();
+    QCOMPARE(profileAccepted.count(), 0);
+    QVERIFY(requiredChild<QLabel>(&profileDialog, "profileMessageLabel")
+                ->text()
+                .contains(QStringLiteral("不能为空")));
+    requiredChild<QLineEdit>(&profileDialog, "profileNameEdit")->setText(QStringLiteral("张三"));
+    requiredChild<QLineEdit>(&profileDialog, "profileAddressEdit")
+        ->setText(QStringLiteral("上海市"));
+    requiredChild<QPushButton>(&profileDialog, "confirmProfileButton")->click();
+    QCOMPARE(profileAccepted.count(), 1);
+
+    PasswordDialog passwordDialog;
+    QSignalSpy passwordAccepted(&passwordDialog, &QDialog::accepted);
+    requiredChild<QLineEdit>(&passwordDialog, "currentPasswordEdit")
+        ->setText(QStringLiteral("OldPassword123"));
+    requiredChild<QLineEdit>(&passwordDialog, "newPasswordEdit")
+        ->setText(QStringLiteral("NewPassword123"));
+    requiredChild<QLineEdit>(&passwordDialog, "confirmNewPasswordEdit")
+        ->setText(QStringLiteral("DifferentPassword123"));
+    requiredChild<QPushButton>(&passwordDialog, "confirmPasswordButton")->click();
+    QCOMPARE(passwordAccepted.count(), 0);
+    QVERIFY(requiredChild<QLabel>(&passwordDialog, "passwordMessageLabel")
+                ->text()
+                .contains(QStringLiteral("不一致")));
+    requiredChild<QLineEdit>(&passwordDialog, "confirmNewPasswordEdit")
+        ->setText(QStringLiteral("NewPassword123"));
+    requiredChild<QPushButton>(&passwordDialog, "confirmPasswordButton")->click();
+    QCOMPARE(passwordAccepted.count(), 1);
+
+    UnfreezeDialog unfreezeDialog;
+    QSignalSpy unfreezeAccepted(&unfreezeDialog, &QDialog::accepted);
+    requiredChild<QPushButton>(&unfreezeDialog, "confirmUnfreezeButton")->click();
+    QCOMPARE(unfreezeAccepted.count(), 0);
+    QVERIFY(requiredChild<QLabel>(&unfreezeDialog, "unfreezeMessageLabel")
+                ->text()
+                .contains(QStringLiteral("请输入")));
+    requiredChild<QLineEdit>(&unfreezeDialog, "unfreezePasswordEdit")
+        ->setText(QStringLiteral("Password123"));
+    requiredChild<QPushButton>(&unfreezeDialog, "confirmUnfreezeButton")->click();
+    QCOMPARE(unfreezeAccepted.count(), 1);
+
+    WithdrawDialog withdrawDialog(nullptr, QStringLiteral("FD000001"));
+    requiredChild<QLineEdit>(&withdrawDialog, "withdrawAmountEdit")
+        ->setText(QStringLiteral("100.00"));
+    QVERIFY(!requiredChild<QPushButton>(&withdrawDialog, "confirmWithdrawButton")->isEnabled());
+    QCOMPARE(requiredChild<QLabel>(&withdrawDialog, "withdrawMessageLabel")->text(),
+             QStringLiteral("业务服务不可用"));
+}
+
 void MainWindowTest::completesMainWorkflowThroughUiConnections()
 {
     QTemporaryDir temporaryDirectory;
@@ -189,12 +271,20 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         showAndProcess(&window);
         auto *stack = requiredChild<QStackedWidget>(&window, "mainStackedWidget");
 
+        requiredChild<QLineEdit>(&window, "employeeIdEdit")->setText(QStringLiteral("E99"));
+        requiredChild<QPushButton>(&window, "employeeEnterButton")->click();
+        QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("employeeLoginPage"));
+        QVERIFY(!requiredChild<QLabel>(&window, "employeeLoginMessageLabel")->text().isEmpty());
+
         requiredChild<QLineEdit>(&window, "employeeIdEdit")->setText(QStringLiteral("E03"));
         requiredChild<QPushButton>(&window, "employeeEnterButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("workspacePage"));
         QVERIFY(requiredChild<QLabel>(&window, "currentEmployeeLabel")
                     ->text()
                     .contains(QStringLiteral("E03")));
+        QVERIFY(!requiredChild<QPushButton>(&window, "newDepositButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "editProfileButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "reportLossButton")->isEnabled());
 
         requiredChild<QPushButton>(&window, "openAccountButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("openAccountPage"));
@@ -266,12 +356,33 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
                  QStringLiteral("¥1,000.00"));
         QCOMPARE(deposits->model()->index(1, 3).data().toString(),
                  QStringLiteral("三年期定期"));
+        QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
         deposits->setCurrentIndex(deposits->model()->index(0, 0));
         QApplication::processEvents();
         QVERIFY(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
 
+        bool cancelledWithdrawal = false;
+        QTimer::singleShot(0, &window, [&cancelledWithdrawal] {
+            QWidget *dialog = QApplication::activeModalWidget();
+            if (!dialog) {
+                return;
+            }
+            requiredChild<QLineEdit>(dialog, "withdrawAmountEdit")
+                ->setText(QStringLiteral("400.00"));
+            requiredChild<QPushButton>(dialog, "cancelWithdrawButton")->click();
+            cancelledWithdrawal = true;
+        });
+        requiredChild<QPushButton>(&window, "withdrawSelectedButton")->click();
+        QVERIFY(cancelledWithdrawal);
+        QCOMPARE(deposits->model()->index(0, 2).data().toString(),
+                 QStringLiteral("¥1,000.00"));
+        QCOMPARE(transactions->model()->rowCount(), 2);
+
+        now = QDateTime(QDate(2026, 7, 2), QTime(10, 30));
+
         bool withdrawDialogHandled = false;
-        QTimer::singleShot(0, &window, [&withdrawDialogHandled] {
+        bool withdrawPreviewVerified = false;
+        QTimer::singleShot(0, &window, [&withdrawDialogHandled, &withdrawPreviewVerified] {
             QWidget *dialog = QApplication::activeModalWidget();
             if (!dialog) {
                 return;
@@ -280,15 +391,26 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
                 ->setText(QStringLiteral("400.00"));
             auto *confirm = requiredChild<QPushButton>(dialog, "confirmWithdrawButton");
             if (confirm->isEnabled()) {
+                withdrawPreviewVerified =
+                    requiredChild<QLabel>(dialog, "withdrawKindLabel")
+                        ->text()
+                        .contains(QStringLiteral("提前支取"))
+                    && requiredChild<QLabel>(dialog, "withdrawInterestLabel")->text()
+                           != QStringLiteral("¥0.00")
+                    && requiredChild<QLabel>(dialog, "withdrawPayoutLabel")->text()
+                           != QStringLiteral("¥400.00");
                 confirm->click();
                 withdrawDialogHandled = true;
             }
         });
         requiredChild<QPushButton>(&window, "withdrawSelectedButton")->click();
         QVERIFY(withdrawDialogHandled);
+        QVERIFY(withdrawPreviewVerified);
         QCOMPARE(deposits->model()->index(0, 2).data().toString(),
                  QStringLiteral("¥600.00"));
         QCOMPARE(transactions->model()->rowCount(), 3);
+        QVERIFY(!deposits->currentIndex().isValid());
+        QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
 
         bool profileDialogHandled = false;
         QTimer::singleShot(0, &window, [&profileDialogHandled] {
@@ -353,6 +475,27 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QVERIFY(!requiredChild<QPushButton>(&window, "editProfileButton")->isEnabled());
         QVERIFY(requiredChild<QPushButton>(&window, "unfreezeAccountButton")->isEnabled());
 
+        bool failedUnfreezeDialogHandled = false;
+        QTimer::singleShot(0, &window, [&failedUnfreezeDialogHandled] {
+            QWidget *dialog = QApplication::activeModalWidget();
+            if (!dialog) {
+                return;
+            }
+            requiredChild<QLineEdit>(dialog, "unfreezePasswordEdit")
+                ->setText(QStringLiteral("WrongPassword123"));
+            requiredChild<QPushButton>(dialog, "confirmUnfreezeButton")->click();
+            failedUnfreezeDialogHandled = true;
+        });
+        requiredChild<QPushButton>(&window, "unfreezeAccountButton")->click();
+        QVERIFY(failedUnfreezeDialogHandled);
+        QVERIFY(requiredChild<QLabel>(&window, "accountStatusLabel")
+                    ->text()
+                    .contains(QStringLiteral("已挂失")));
+        QVERIFY(requiredChild<QLabel>(&window, "accountMessageLabel")
+                    ->text()
+                    .contains(QStringLiteral("密码错误")));
+        QVERIFY(requiredChild<QPushButton>(&window, "unfreezeAccountButton")->isEnabled());
+
         bool unfreezeDialogHandled = false;
         QTimer::singleShot(0, &window, [&] {
             QWidget *dialog = QApplication::activeModalWidget();
@@ -373,6 +516,13 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("workspacePage"));
         QCOMPARE(deposits->model()->rowCount(), 0);
         QCOMPARE(transactions->model()->rowCount(), 0);
+        QVERIFY(!requiredChild<QPushButton>(&window, "newDepositButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "editProfileButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "changePasswordButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "reportLossButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "unfreezeAccountButton")->isEnabled());
+        QVERIFY(!requiredChild<QPushButton>(&window, "logoutDepositorButton")->isEnabled());
 
         requiredChild<QPushButton>(&window, "allDepositorsButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("allDepositorsPage"));
@@ -381,6 +531,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QCOMPARE(depositors->model()->columnCount(), 8);
         QCOMPARE(depositors->model()->index(0, 1).data().toString(),
                  QStringLiteral("张三丰"));
+        QCOMPARE(depositors->model()->index(0, 2).data().toString(),
+                 QStringLiteral("上海市浦东新区"));
         for (int column = 0; column < depositors->model()->columnCount(); ++column) {
             QVERIFY(!depositors->model()
                          ->headerData(column, Qt::Horizontal)
@@ -414,7 +566,7 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         requiredChild<QPushButton>(&window, "auditLogButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("auditLogPage"));
         auto *auditTable = requiredChild<QTableView>(&window, "auditLogTableView");
-        QVERIFY(auditTable->model()->rowCount() >= 10);
+        QVERIFY(auditTable->model()->rowCount() >= 11);
         QVERIFY(auditTable->columnWidth(0) >= 170);
         QVERIFY(auditTable->columnWidth(1) >= 70);
         QVERIFY(auditTable->columnWidth(2) >= 100);
@@ -463,6 +615,11 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         requiredChild<QPushButton>(&window, "switchEmployeeButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("employeeLoginPage"));
         QVERIFY(!requiredChild<QAction>(&window, "actionSwitchEmployee")->isEnabled());
+        QCOMPARE(auditTable->model()->rowCount(), 0);
+        QCOMPARE(depositors->model()->rowCount(), 0);
+        QCOMPARE(forecastTable->model()->rowCount(), 0);
+        QCOMPARE(requiredChild<QLabel>(&window, "accountNumberLabel")->text(),
+                 QStringLiteral("账号：—"));
     }
 
     // 重启窗口后再次通过密码登录，验证 UI 操作已由服务层即时保存。

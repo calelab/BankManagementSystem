@@ -43,6 +43,7 @@ private:
     void logoutDepositor();
 
     void refreshAccountCenter();
+    void clearAccountPresentation();
     void updateAccountActionState();
     QString selectedDepositId() const;
     void createFixedDeposit();

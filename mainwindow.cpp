@@ -161,6 +161,20 @@ void prepareTransactionTable(QTableView *tableView)
     header->setSectionResizeMode(7, QHeaderView::Stretch);
 }
 
+void prepareDepositorTable(QTableView *tableView)
+{
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setStretchLastSection(false);
+    header->setSectionResizeMode(QHeaderView::Interactive);
+    tableView->verticalHeader()->setVisible(false);
+
+    constexpr std::array<int, 8> columnWidths{115, 120, 260, 85, 120, 105, 100, 135};
+    for (int column = 0; column < static_cast<int>(columnWidths.size()); ++column) {
+        tableView->setColumnWidth(column, columnWidths.at(column));
+    }
+    header->setSectionResizeMode(2, QHeaderView::Stretch);
+}
+
 void resizeAuditTableColumns(QTableView *tableView)
 {
     struct WidthRange {
@@ -436,7 +450,7 @@ void MainWindow::setupTableModels()
             [this] { updateAccountActionState(); });
     prepareTable(ui->depositsTableView);
     prepareTransactionTable(ui->transactionsTableView);
-    prepareTable(ui->allDepositorsTableView);
+    prepareDepositorTable(ui->allDepositorsTableView);
     prepareTable(ui->reserveForecastTableView);
     prepareAuditTable(ui->auditLogTableView);
 }
@@ -475,6 +489,7 @@ void MainWindow::updateSessionDisplay()
     ui->actionLogoutDepositor->setEnabled(depositorActive);
     ui->actionSwitchEmployee->setEnabled(employeeActive);
     ui->queryMenu->setEnabled(employeeActive);
+    updateAccountActionState();
 }
 
 void MainWindow::showWorkspace()
@@ -506,6 +521,10 @@ void MainWindow::showServiceResult(const bank::ServiceResult &result, QLabel *ta
 
 void MainWindow::enterEmployeeSession()
 {
+    if (!bankService_) {
+        ui->employeeLoginMessageLabel->setText(QStringLiteral("业务服务不可用。"));
+        return;
+    }
     const bank::ServiceResult result = bankService_->enterEmployeeSession(
         ui->employeeIdEdit->text());
     showServiceResult(result, ui->employeeLoginMessageLabel);
@@ -521,10 +540,18 @@ void MainWindow::switchEmployee()
         return;
     }
     const bank::ServiceResult result = bankService_->switchEmployee();
-    depositsModel_->removeRows(0, depositsModel_->rowCount());
-    transactionsModel_->removeRows(0, transactionsModel_->rowCount());
+    clearAccountPresentation();
+    depositorsModel_->removeRows(0, depositorsModel_->rowCount());
+    reserveModel_->removeRows(0, reserveModel_->rowCount());
+    auditModel_->removeRows(0, auditModel_->rowCount());
+    ui->accountNumberEdit->clear();
+    ui->accountPasswordEdit->clear();
+    ui->accountLoginMessageLabel->clear();
+    ui->depositorSearchEdit->clear();
+    ui->depositorStatusComboBox->setCurrentIndex(0);
+    ui->auditActionComboBox->setCurrentIndex(0);
     updateSessionDisplay();
-    ui->employeeLoginMessageLabel->setText(result.message);
+    showServiceResult(result, ui->employeeLoginMessageLabel);
     ui->mainStackedWidget->setCurrentWidget(ui->employeeLoginPage);
     ui->employeeIdEdit->setFocus();
 }
@@ -581,6 +608,7 @@ void MainWindow::loginDepositor()
     showServiceResult(result, ui->accountLoginMessageLabel);
     ui->accountPasswordEdit->clear();
     if (result.success) {
+        ui->accountMessageLabel->clear();
         refreshAccountCenter();
         ui->mainStackedWidget->setCurrentWidget(ui->accountCenterPage);
     }
@@ -593,8 +621,7 @@ void MainWindow::logoutDepositor()
         return;
     }
     const bank::ServiceResult result = bankService_->logoutDepositor();
-    depositsModel_->removeRows(0, depositsModel_->rowCount());
-    transactionsModel_->removeRows(0, transactionsModel_->rowCount());
+    clearAccountPresentation();
     showServiceResult(result, ui->workspaceMessageLabel);
     showWorkspace();
 }
@@ -660,8 +687,22 @@ void MainWindow::refreshAccountCenter()
              textItem(bank::MoneyUtils::formatCents(transaction.actualPayoutCents())),
              textItem(transaction.employeeId())});
     }
-    ui->depositsTableView->clearSelection();
+    ui->depositsTableView->selectionModel()->clear();
     updateSessionDisplay();
+    updateAccountActionState();
+}
+
+void MainWindow::clearAccountPresentation()
+{
+    depositsModel_->removeRows(0, depositsModel_->rowCount());
+    transactionsModel_->removeRows(0, transactionsModel_->rowCount());
+    ui->depositsTableView->selectionModel()->clear();
+    ui->accountNumberLabel->setText(QStringLiteral("账号：—"));
+    ui->depositorNameLabel->setText(QStringLiteral("姓名：—"));
+    ui->accountStatusLabel->setText(QStringLiteral("状态：—"));
+    ui->lostDateLabel->setText(QStringLiteral("挂失日期：—"));
+    ui->totalPrincipalLabel->setText(QStringLiteral("剩余本金：¥0.00"));
+    ui->accountMessageLabel->clear();
     updateAccountActionState();
 }
 
