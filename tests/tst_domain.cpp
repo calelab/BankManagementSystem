@@ -330,6 +330,15 @@ void DomainTest::validatesDepositorAggregate()
     QString error;
     QVERIFY2(depositor.isValid(&error), qPrintable(error));
 
+    const QByteArray originalHash = depositor.passwordHash();
+    QVERIFY(!depositor.replacePasswordCredentials(QByteArray(16, 'n'),
+                                                   QByteArray(32, 'k'),
+                                                   1,
+                                                   Depositor::supportedPasswordKdfAlgorithm(),
+                                                   &error));
+    QCOMPARE(depositor.passwordHash(), originalHash);
+    QCOMPARE(depositor.passwordKdfIterations(), 210000);
+
     QVERIFY(!depositor.addDeposit(makeDeposit(), &error));
     QVERIFY(error.contains(QStringLiteral("重复")));
 

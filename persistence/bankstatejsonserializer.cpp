@@ -332,6 +332,7 @@ QJsonObject serializeDepositor(const Depositor &depositor)
         {QStringLiteral("passwordSalt"), QString::fromLatin1(depositor.passwordSalt().toBase64())},
         {QStringLiteral("passwordHash"), QString::fromLatin1(depositor.passwordHash().toBase64())},
         {QStringLiteral("passwordKdfIterations"), depositor.passwordKdfIterations()},
+        {QStringLiteral("passwordKdfAlgorithm"), depositor.passwordKdfAlgorithm()},
         {QStringLiteral("address"), depositor.address()},
         {QStringLiteral("lost"), depositor.isLost()},
         {QStringLiteral("openingEmployeeId"), depositor.openingEmployeeId()},
@@ -462,6 +463,7 @@ bool deserializeDepositor(const QJsonValue &value,
     QByteArray salt;
     QByteArray hash;
     int iterations = 0;
+    QString algorithm = Depositor::supportedPasswordKdfAlgorithm();
     QString address;
     bool lost = false;
     QString employeeId;
@@ -481,6 +483,15 @@ bool deserializeDepositor(const QJsonValue &value,
         || !readDateTime(object, QStringLiteral("createdAt"), &createdAt, errorMessage)
         || !readArray(object, QStringLiteral("deposits"), &depositsArray, errorMessage)
         || !readArray(object, QStringLiteral("transactions"), &transactionsArray, errorMessage)) {
+        return false;
+    }
+
+    // 阶段 2 生成的早期 Schema 1 文件没有该字段，读取时按唯一受支持算法迁移。
+    if (object.contains(QStringLiteral("passwordKdfAlgorithm"))
+        && !readString(object,
+                       QStringLiteral("passwordKdfAlgorithm"),
+                       &algorithm,
+                       errorMessage)) {
         return false;
     }
 
@@ -534,7 +545,8 @@ bool deserializeDepositor(const QJsonValue &value,
                         employeeId,
                         createdAt,
                         deposits,
-                        transactions);
+                        transactions,
+                        algorithm);
     QString validationError;
     if (!candidate.isValid(&validationError)) {
         return fail(errorMessage, QStringLiteral("储户数据无效：%1").arg(validationError));

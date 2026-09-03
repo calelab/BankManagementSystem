@@ -29,12 +29,14 @@ Depositor::Depositor(QString accountNumber,
                      QString openingEmployeeId,
                      QDateTime createdAt,
                      QVector<FixedDeposit> deposits,
-                     QVector<Transaction> transactions)
+                     QVector<Transaction> transactions,
+                     QString passwordKdfAlgorithm)
     : accountNumber_(std::move(accountNumber))
     , name_(std::move(name))
     , passwordSalt_(std::move(passwordSalt))
     , passwordHash_(std::move(passwordHash))
     , passwordKdfIterations_(passwordKdfIterations)
+    , passwordKdfAlgorithm_(std::move(passwordKdfAlgorithm))
     , address_(std::move(address))
     , lost_(lost)
     , lostDate_(std::move(lostDate))
@@ -43,6 +45,11 @@ Depositor::Depositor(QString accountNumber,
     , deposits_(std::move(deposits))
     , transactions_(std::move(transactions))
 {
+}
+
+QString Depositor::supportedPasswordKdfAlgorithm()
+{
+    return QStringLiteral("PBKDF2-HMAC-SHA256");
 }
 
 const QString &Depositor::accountNumber() const
@@ -68,6 +75,11 @@ const QByteArray &Depositor::passwordHash() const
 int Depositor::passwordKdfIterations() const
 {
     return passwordKdfIterations_;
+}
+
+const QString &Depositor::passwordKdfAlgorithm() const
+{
+    return passwordKdfAlgorithm_;
 }
 
 const QString &Depositor::address() const
@@ -103,6 +115,66 @@ const QVector<FixedDeposit> &Depositor::deposits() const
 const QVector<Transaction> &Depositor::transactions() const
 {
     return transactions_;
+}
+
+bool Depositor::updateProfile(QString name, QString address, QString *errorMessage)
+{
+    name = name.trimmed();
+    address = address.trimmed();
+    if (name.isEmpty()) {
+        return failValidation(errorMessage, QStringLiteral("姓名不能为空"));
+    }
+    if (address.isEmpty()) {
+        return failValidation(errorMessage, QStringLiteral("地址不能为空"));
+    }
+    name_ = std::move(name);
+    address_ = std::move(address);
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+    return true;
+}
+
+bool Depositor::replacePasswordCredentials(QByteArray salt,
+                                           QByteArray hash,
+                                           int iterations,
+                                           QString algorithm,
+                                           QString *errorMessage)
+{
+    if (salt.size() != 16 || hash.size() != 32 || iterations != 210000
+        || algorithm != supportedPasswordKdfAlgorithm()) {
+        return failValidation(errorMessage, QStringLiteral("密码派生信息无效"));
+    }
+    passwordSalt_ = std::move(salt);
+    passwordHash_ = std::move(hash);
+    passwordKdfIterations_ = iterations;
+    passwordKdfAlgorithm_ = std::move(algorithm);
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+    return true;
+}
+
+bool Depositor::reportLoss(const QDate &date, QString *errorMessage)
+{
+    if (lost_) {
+        return failValidation(errorMessage, QStringLiteral("账户已经挂失"));
+    }
+    if (!date.isValid()) {
+        return failValidation(errorMessage, QStringLiteral("挂失日期无效"));
+    }
+    lost_ = true;
+    lostDate_ = date;
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+    return true;
+}
+
+void Depositor::clearLoss()
+{
+    lost_ = false;
+    lostDate_.reset();
 }
 
 bool Depositor::addDeposit(const FixedDeposit &deposit, QString *errorMessage)
@@ -179,7 +251,9 @@ bool Depositor::isValid(QString *errorMessage) const
     if (address_.trimmed().isEmpty()) {
         return failValidation(errorMessage, QStringLiteral("地址不能为空"));
     }
-    if (passwordSalt_.isEmpty() || passwordHash_.isEmpty() || passwordKdfIterations_ <= 0) {
+    if (passwordSalt_.size() != 16 || passwordHash_.size() != 32
+        || passwordKdfIterations_ != 210000
+        || passwordKdfAlgorithm_ != supportedPasswordKdfAlgorithm()) {
         return failValidation(errorMessage, QStringLiteral("密码派生信息不完整"));
     }
     if (lost_ != lostDate_.has_value()) {

@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Widgets Test)
 
 qt_standard_project_setup()
 
@@ -41,6 +41,8 @@ qt_add_library(BankPersistence STATIC
     persistence/bankstatejsonserializer.h
     persistence/datacodec.cpp
     persistence/datacodec.h
+    persistence/employeefilemanager.cpp
+    persistence/employeefilemanager.h
     persistence/filemanager.cpp
     persistence/filemanager.h
 )
@@ -56,6 +58,41 @@ target_link_libraries(BankPersistence
         Qt::Core
 )
 
+qt_add_library(BankSecurity STATIC
+    security/securityutils.cpp
+    security/securityutils.h
+)
+
+target_include_directories(BankSecurity
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(BankSecurity
+    PUBLIC
+        BankDomain
+        Qt::Core
+        Qt::Network
+)
+
+qt_add_library(BankServices STATIC
+    services/bankservice.cpp
+    services/bankservice.h
+)
+
+target_include_directories(BankServices
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(BankServices
+    PUBLIC
+        BankDomain
+        BankPersistence
+        BankSecurity
+        Qt::Core
+)
+
 qt_add_executable(BankManagementSystem
     WIN32 MACOSX_BUNDLE
     main.cpp
@@ -68,6 +105,8 @@ target_link_libraries(BankManagementSystem
     PRIVATE
         BankDomain
         BankPersistence
+        BankSecurity
+        BankServices
         Qt::Core
         Qt::Widgets
 )
@@ -105,6 +144,22 @@ target_link_libraries(BankPersistenceTests
 )
 
 add_test(NAME BankPersistenceTests COMMAND BankPersistenceTests)
+
+qt_add_executable(BankServiceTests
+    tests/tst_bankservice.cpp
+)
+
+set_target_properties(BankServiceTests PROPERTIES
+    MACOSX_BUNDLE FALSE
+)
+
+target_link_libraries(BankServiceTests
+    PRIVATE
+        BankServices
+        Qt::Test
+)
+
+add_test(NAME BankServiceTests COMMAND BankServiceTests)
 
 install(TARGETS BankManagementSystem
     BUNDLE  DESTINATION .
