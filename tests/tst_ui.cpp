@@ -115,6 +115,38 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
     QVERIFY(!requiredChild<QCheckBox>(&window, "showClosedDepositsCheckBox")->isChecked());
     QVERIFY(!requiredChild<QAction>(&window, "actionLogoutDepositor")->isEnabled());
 
+    auto *transactionsTable = requiredChild<QTableView>(&window, "transactionsTableView");
+    QCOMPARE(transactionsTable->model()->headerData(3, Qt::Horizontal).toString(),
+             QStringLiteral("业务类型"));
+    QVERIFY(transactionsTable->columnWidth(0) >= 150);
+    QVERIFY(transactionsTable->columnWidth(1) >= 180);
+    QVERIFY(transactionsTable->columnWidth(2) >= 150);
+    QVERIFY(transactionsTable->columnWidth(3) >= 110);
+    QVERIFY(transactionsTable->columnWidth(4) >= 115);
+    QVERIFY(transactionsTable->columnWidth(5) >= 115);
+    QVERIFY(transactionsTable->columnWidth(6) >= 115);
+    QCOMPARE(transactionsTable->horizontalScrollMode(),
+             QAbstractItemView::ScrollPerPixel);
+    QVERIFY(!transactionsTable->wordWrap());
+
+    auto *auditTable = requiredChild<QTableView>(&window, "auditLogTableView");
+    QCOMPARE(auditTable->model()->headerData(3, Qt::Horizontal).toString(),
+             QStringLiteral("操作类型"));
+    QCOMPARE(auditTable->model()->headerData(7, Qt::Horizontal).toString(),
+             QStringLiteral("失败原因"));
+    QCOMPARE(auditTable->horizontalScrollMode(), QAbstractItemView::ScrollPerPixel);
+    QVERIFY(!auditTable->wordWrap());
+    QVERIFY(auditTable->columnWidth(0) >= 170);
+    QVERIFY(auditTable->columnWidth(7) >= 300);
+    QVERIFY(auditTable->columnWidth(7) <= 320);
+    QCOMPARE(requiredChild<QLabel>(&window, "auditActionLabel")->text(),
+             QStringLiteral("操作类型"));
+    auto *auditFilter = requiredChild<QComboBox>(&window, "auditActionComboBox");
+    QCOMPARE(auditFilter->itemText(0), QStringLiteral("全部操作"));
+    const int depositFilterIndex = auditFilter->findData(QStringLiteral("DEPOSIT"));
+    QVERIFY(depositFilterIndex >= 0);
+    QCOMPARE(auditFilter->itemText(depositFilterIndex), QStringLiteral("新增存款"));
+
     DepositDialog depositDialog(now.date());
     auto *termGroup = requiredChild<QButtonGroup>(&depositDialog,
                                                    "depositTermButtonGroup");
@@ -183,6 +215,12 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("depositorLoginPage"));
         QCOMPARE(requiredChild<QLineEdit>(&window, "accountNumberEdit")->text(),
                  QStringLiteral("100001"));
+        requiredChild<QLineEdit>(&window, "accountPasswordEdit")
+            ->setText(QStringLiteral("WrongPassword123"));
+        requiredChild<QPushButton>(&window, "accountLoginButton")->click();
+        QVERIFY(requiredChild<QLabel>(&window, "accountLoginMessageLabel")
+                    ->text()
+                    .contains(QStringLiteral("账号或密码错误")));
         requiredChild<QLineEdit>(&window, "accountPasswordEdit")->setText(oldPassword);
         requiredChild<QPushButton>(&window, "accountLoginButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("accountCenterPage"));
@@ -290,19 +328,24 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
                     .contains(QStringLiteral("密码修改成功")));
 
         bool lossConfirmed = false;
-        QTimer::singleShot(0, &window, [&lossConfirmed] {
+        bool lossButtonLabelsVerified = false;
+        QTimer::singleShot(0, &window, [&lossConfirmed, &lossButtonLabelsVerified] {
             auto *messageBox = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
             if (!messageBox) {
                 return;
             }
             QAbstractButton *yesButton = messageBox->button(QMessageBox::Yes);
-            if (yesButton) {
+            QAbstractButton *noButton = messageBox->button(QMessageBox::No);
+            if (yesButton && noButton) {
+                lossButtonLabelsVerified = yesButton->text() == QStringLiteral("确认")
+                                           && noButton->text() == QStringLiteral("取消");
                 yesButton->click();
                 lossConfirmed = true;
             }
         });
         requiredChild<QPushButton>(&window, "reportLossButton")->click();
         QVERIFY(lossConfirmed);
+        QVERIFY(lossButtonLabelsVerified);
         QVERIFY(requiredChild<QLabel>(&window, "accountStatusLabel")
                     ->text()
                     .contains(QStringLiteral("已挂失")));
@@ -371,15 +414,50 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         requiredChild<QPushButton>(&window, "auditLogButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("auditLogPage"));
         auto *auditTable = requiredChild<QTableView>(&window, "auditLogTableView");
-        QVERIFY(auditTable->model()->rowCount() >= 9);
+        QVERIFY(auditTable->model()->rowCount() >= 10);
+        QVERIFY(auditTable->columnWidth(0) >= 170);
+        QVERIFY(auditTable->columnWidth(1) >= 70);
+        QVERIFY(auditTable->columnWidth(2) >= 100);
+        QVERIFY(auditTable->columnWidth(3) >= 110);
+        QVERIFY(auditTable->columnWidth(4) >= 95);
+        QVERIFY(auditTable->columnWidth(5) >= 95);
+        QVERIFY(auditTable->columnWidth(6) >= 65);
+        QVERIFY(auditTable->columnWidth(7) >= 300);
+        QVERIFY(auditTable->columnWidth(7) <= 320);
         auto *auditFilter = requiredChild<QComboBox>(&window, "auditActionComboBox");
         const int depositAction = auditFilter->findData(QStringLiteral("DEPOSIT"));
         QVERIFY(depositAction >= 0);
+        QCOMPARE(auditFilter->itemText(depositAction), QStringLiteral("新增存款"));
         auditFilter->setCurrentIndex(depositAction);
         requiredChild<QPushButton>(&window, "refreshAuditButton")->click();
         QCOMPARE(auditTable->model()->rowCount(), 2);
         QCOMPARE(auditTable->model()->index(0, 3).data().toString(),
-                 QStringLiteral("DEPOSIT"));
+                 QStringLiteral("新增存款"));
+        QCOMPARE(auditTable->model()->index(0, 7).data().toString(),
+                 QStringLiteral("—"));
+
+        const int loginAction = auditFilter->findData(QStringLiteral("LOGIN"));
+        QVERIFY(loginAction >= 0);
+        QCOMPARE(auditFilter->itemText(loginAction), QStringLiteral("储户登录"));
+        auditFilter->setCurrentIndex(loginAction);
+        requiredChild<QPushButton>(&window, "refreshAuditButton")->click();
+        QCOMPARE(auditTable->model()->rowCount(), 2);
+        bool sawSuccessfulLogin = false;
+        bool sawFailedLogin = false;
+        for (int row = 0; row < auditTable->model()->rowCount(); ++row) {
+            QCOMPARE(auditTable->model()->index(row, 3).data().toString(),
+                     QStringLiteral("储户登录"));
+            const QString auditResult = auditTable->model()->index(row, 6).data().toString();
+            const QString reason = auditTable->model()->index(row, 7).data().toString();
+            sawSuccessfulLogin = sawSuccessfulLogin
+                                 || (auditResult == QStringLiteral("成功")
+                                     && reason == QStringLiteral("—"));
+            sawFailedLogin = sawFailedLogin
+                             || (auditResult == QStringLiteral("失败")
+                                 && reason == QStringLiteral("密码错误"));
+        }
+        QVERIFY(sawSuccessfulLogin);
+        QVERIFY(sawFailedLogin);
 
         requiredChild<QPushButton>(&window, "auditLogBackButton")->click();
         requiredChild<QPushButton>(&window, "switchEmployeeButton")->click();

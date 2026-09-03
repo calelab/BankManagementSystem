@@ -9,6 +9,7 @@
 #include "ui_mainwindow.h"
 #include "utils/moneyutils.h"
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QDialog>
 #include <QHeaderView>
@@ -21,6 +22,8 @@
 #include <QStatusBar>
 #include <QTableView>
 
+#include <algorithm>
+#include <array>
 #include <memory>
 #include <utility>
 
@@ -69,11 +72,127 @@ QString auditResultText(bank::AuditResult result)
     return QStringLiteral("未知");
 }
 
+using AuditActionPresentation = std::pair<QString, QString>;
+
+const std::array<AuditActionPresentation, 10> &auditActionPresentations()
+{
+    static const std::array<AuditActionPresentation, 10> presentations{
+        AuditActionPresentation{QStringLiteral("LOGIN"), QStringLiteral("储户登录")},
+        AuditActionPresentation{QStringLiteral("OPEN_ACCOUNT"), QStringLiteral("开户")},
+        AuditActionPresentation{QStringLiteral("DEPOSIT"), QStringLiteral("新增存款")},
+        AuditActionPresentation{QStringLiteral("EARLY_WITHDRAW"), QStringLiteral("提前支取")},
+        AuditActionPresentation{QStringLiteral("MATURED_WITHDRAW"), QStringLiteral("到期支取")},
+        AuditActionPresentation{QStringLiteral("UPDATE_PROFILE"), QStringLiteral("修改资料")},
+        AuditActionPresentation{QStringLiteral("CHANGE_PASSWORD"), QStringLiteral("修改密码")},
+        AuditActionPresentation{QStringLiteral("REPORT_LOSS"), QStringLiteral("账户挂失")},
+        AuditActionPresentation{QStringLiteral("UNFREEZE_ACCOUNT"), QStringLiteral("解除挂失")},
+        AuditActionPresentation{QStringLiteral("CORE_DATA_SAVE"), QStringLiteral("核心数据保存")}};
+    return presentations;
+}
+
+QString auditActionText(const QString &actionCode)
+{
+    for (const auto &[code, text] : auditActionPresentations()) {
+        if (code == actionCode) {
+            return text;
+        }
+    }
+    return QStringLiteral("未知操作");
+}
+
+QString auditFailureReasonText(const QString &reasonCode)
+{
+    if (reasonCode == QStringLiteral("NONE")) {
+        return QStringLiteral("—");
+    }
+    if (reasonCode == QStringLiteral("AUTH_FAILED")
+        || reasonCode == QStringLiteral("PASSWORD_ERROR")) {
+        return QStringLiteral("密码错误");
+    }
+    if (reasonCode == QStringLiteral("ACCOUNT_NOT_FOUND")) {
+        return QStringLiteral("账户不存在");
+    }
+    if (reasonCode == QStringLiteral("ACCOUNT_LOCKED")) {
+        return QStringLiteral("账户已锁定");
+    }
+    if (reasonCode == QStringLiteral("ACCOUNT_LOST")) {
+        return QStringLiteral("账户已挂失");
+    }
+    if (reasonCode == QStringLiteral("ACCOUNT_NOT_LOST")) {
+        return QStringLiteral("账户未挂失");
+    }
+    if (reasonCode == QStringLiteral("INVALID_AMOUNT")) {
+        return QStringLiteral("金额无效");
+    }
+    if (reasonCode == QStringLiteral("INSUFFICIENT_BALANCE")
+        || reasonCode == QStringLiteral("INSUFFICIENT_PRINCIPAL")) {
+        return QStringLiteral("余额不足");
+    }
+    if (reasonCode == QStringLiteral("DEPOSIT_CLOSED")) {
+        return QStringLiteral("存款已结清");
+    }
+    if (reasonCode == QStringLiteral("INVALID_INPUT")) {
+        return QStringLiteral("输入无效");
+    }
+    if (reasonCode == QStringLiteral("PERSISTENCE_ERROR")) {
+        return QStringLiteral("保存失败");
+    }
+    return QStringLiteral("操作失败");
+}
+
 void prepareTable(QTableView *tableView)
 {
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     tableView->horizontalHeader()->setStretchLastSection(true);
     tableView->verticalHeader()->setVisible(false);
+}
+
+void prepareTransactionTable(QTableView *tableView)
+{
+    prepareTable(tableView);
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setStretchLastSection(false);
+    header->setSectionResizeMode(QHeaderView::Interactive);
+
+    constexpr std::array<int, 8> columnWidths{150, 180, 150, 110, 115, 115, 115, 90};
+    for (int column = 0; column < static_cast<int>(columnWidths.size()); ++column) {
+        tableView->setColumnWidth(column, columnWidths.at(column));
+    }
+    header->setSectionResizeMode(7, QHeaderView::Stretch);
+}
+
+void resizeAuditTableColumns(QTableView *tableView)
+{
+    struct WidthRange {
+        int minimum;
+        int maximum;
+    };
+    constexpr std::array<WidthRange, 8> widthRanges{
+        WidthRange{170, 190},
+        WidthRange{70, 85},
+        WidthRange{100, 120},
+        WidthRange{110, 140},
+        WidthRange{95, 115},
+        WidthRange{95, 115},
+        WidthRange{65, 80},
+        WidthRange{300, 320}};
+
+    tableView->resizeColumnsToContents();
+    for (int column = 0; column < static_cast<int>(widthRanges.size()); ++column) {
+        const WidthRange range = widthRanges.at(column);
+        tableView->setColumnWidth(
+            column,
+            std::clamp(tableView->columnWidth(column), range.minimum, range.maximum));
+    }
+}
+
+void prepareAuditTable(QTableView *tableView)
+{
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setStretchLastSection(false);
+    header->setSectionResizeMode(QHeaderView::Interactive);
+    tableView->verticalHeader()->setVisible(false);
+    resizeAuditTableColumns(tableView);
 }
 
 } // namespace
@@ -95,23 +214,10 @@ MainWindow::MainWindow(std::unique_ptr<bank::BankService> service, QWidget *pare
     setupConnections();
 
     ui->forecastBaseDateEdit->setDate(QDate::currentDate());
-    ui->auditActionComboBox->addItem(QStringLiteral("全部动作"), QString());
-    ui->auditActionComboBox->addItem(QStringLiteral("储户登录"), QStringLiteral("LOGIN"));
-    ui->auditActionComboBox->addItem(QStringLiteral("开户"), QStringLiteral("OPEN_ACCOUNT"));
-    ui->auditActionComboBox->addItem(QStringLiteral("新增存款"), QStringLiteral("DEPOSIT"));
-    ui->auditActionComboBox->addItem(QStringLiteral("提前支取"),
-                                     QStringLiteral("EARLY_WITHDRAW"));
-    ui->auditActionComboBox->addItem(QStringLiteral("到期支取"),
-                                     QStringLiteral("MATURED_WITHDRAW"));
-    ui->auditActionComboBox->addItem(QStringLiteral("修改资料"),
-                                     QStringLiteral("UPDATE_PROFILE"));
-    ui->auditActionComboBox->addItem(QStringLiteral("修改密码"),
-                                     QStringLiteral("CHANGE_PASSWORD"));
-    ui->auditActionComboBox->addItem(QStringLiteral("挂失"), QStringLiteral("REPORT_LOSS"));
-    ui->auditActionComboBox->addItem(QStringLiteral("解除挂失"),
-                                     QStringLiteral("UNFREEZE_ACCOUNT"));
-    ui->auditActionComboBox->addItem(QStringLiteral("核心文件警告"),
-                                     QStringLiteral("CORE_DATA_SAVE"));
+    ui->auditActionComboBox->addItem(QStringLiteral("全部操作"), QString());
+    for (const auto &[code, text] : auditActionPresentations()) {
+        ui->auditActionComboBox->addItem(text, code);
+    }
 
     initializeService();
 }
@@ -313,11 +419,11 @@ void MainWindow::setupTableModels()
         {QStringLiteral("日期时间"),
          QStringLiteral("营业员"),
          QStringLiteral("账号"),
-         QStringLiteral("动作码"),
+         QStringLiteral("操作类型"),
          QStringLiteral("本金"),
          QStringLiteral("利息"),
          QStringLiteral("结果"),
-         QStringLiteral("原因码")});
+         QStringLiteral("失败原因")});
 
     ui->depositsTableView->setModel(depositsModel_);
     ui->transactionsTableView->setModel(transactionsModel_);
@@ -329,10 +435,10 @@ void MainWindow::setupTableModels()
             this,
             [this] { updateAccountActionState(); });
     prepareTable(ui->depositsTableView);
-    prepareTable(ui->transactionsTableView);
+    prepareTransactionTable(ui->transactionsTableView);
     prepareTable(ui->allDepositorsTableView);
     prepareTable(ui->reserveForecastTableView);
-    prepareTable(ui->auditLogTableView);
+    prepareAuditTable(ui->auditLogTableView);
 }
 
 void MainWindow::initializeService()
@@ -653,12 +759,19 @@ void MainWindow::changePassword()
 
 void MainWindow::reportLoss()
 {
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this,
-        QStringLiteral("确认挂失"),
-        QStringLiteral("挂失后将禁止存款、支取和资料修改，确定继续吗？"),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
+    QMessageBox confirmation(QMessageBox::Question,
+                             QStringLiteral("确认挂失"),
+                             QStringLiteral("挂失后将禁止存款、支取和资料修改，确定继续吗？"),
+                             QMessageBox::Yes | QMessageBox::No,
+                             this);
+    confirmation.setDefaultButton(QMessageBox::No);
+    QAbstractButton *confirmButton = confirmation.button(QMessageBox::Yes);
+    QAbstractButton *cancelButton = confirmation.button(QMessageBox::No);
+    confirmButton->setText(QStringLiteral("确认"));
+    cancelButton->setText(QStringLiteral("取消"));
+    confirmation.setEscapeButton(cancelButton);
+    const QMessageBox::StandardButton answer =
+        static_cast<QMessageBox::StandardButton>(confirmation.exec());
     if (answer != QMessageBox::Yes) {
         return;
     }
@@ -796,12 +909,13 @@ void MainWindow::refreshAuditLog()
              textItem(record.employeeId()),
              textItem(record.accountNumber().isEmpty() ? QStringLiteral("—")
                                                         : record.accountNumber()),
-             textItem(record.action()),
+             textItem(auditActionText(record.action())),
              textItem(bank::MoneyUtils::formatCents(record.principalAmountCents())),
              textItem(bank::MoneyUtils::formatCents(record.interestAmountCents())),
              textItem(auditResultText(record.result())),
-             textItem(record.reasonCode())});
+             textItem(auditFailureReasonText(record.reasonCode()))});
     }
+    resizeAuditTableColumns(ui->auditLogTableView);
     ui->auditLogMessageLabel->setText(
         QStringLiteral("当前营业员共有 %1 条匹配记录。").arg(result.records.size()));
 }
