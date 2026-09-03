@@ -36,6 +36,26 @@ target_link_libraries(BankDomain
         Qt::Core
 )
 
+qt_add_library(BankPersistence STATIC
+    persistence/bankstatejsonserializer.cpp
+    persistence/bankstatejsonserializer.h
+    persistence/datacodec.cpp
+    persistence/datacodec.h
+    persistence/filemanager.cpp
+    persistence/filemanager.h
+)
+
+target_include_directories(BankPersistence
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(BankPersistence
+    PUBLIC
+        BankDomain
+        Qt::Core
+)
+
 qt_add_executable(BankManagementSystem
     WIN32 MACOSX_BUNDLE
     main.cpp
@@ -47,6 +67,7 @@ qt_add_executable(BankManagementSystem
 target_link_libraries(BankManagementSystem
     PRIVATE
         BankDomain
+        BankPersistence
         Qt::Core
         Qt::Widgets
 )
@@ -68,6 +89,22 @@ target_link_libraries(BankDomainTests
 )
 
 add_test(NAME BankDomainTests COMMAND BankDomainTests)
+
+qt_add_executable(BankPersistenceTests
+    tests/tst_persistence.cpp
+)
+
+set_target_properties(BankPersistenceTests PROPERTIES
+    MACOSX_BUNDLE FALSE
+)
+
+target_link_libraries(BankPersistenceTests
+    PRIVATE
+        BankPersistence
+        Qt::Test
+)
+
+add_test(NAME BankPersistenceTests COMMAND BankPersistenceTests)
 
 install(TARGETS BankManagementSystem
     BUNDLE  DESTINATION .

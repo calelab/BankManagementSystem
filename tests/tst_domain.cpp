@@ -391,6 +391,10 @@ void DomainTest::validatesBankStateGlobalUniqueness()
     QVERIFY(error.contains(QStringLiteral("账号")));
 }
 
-QTEST_APPLESS_MAIN(DomainTest)
+int main(int argc, char *argv[])
+{
+    DomainTest test;
+    return QTest::qExec(&test, argc, argv);
+}
 
 #include "tst_domain.moc"
