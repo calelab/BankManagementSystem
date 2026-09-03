@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DepositDialog</class>
+ <widget class="QDialog" name="DepositDialog">
+  <property name="windowTitle"><string>新增定期存款</string></property>
+  <property name="minimumSize"><size><width>520</width><height>360</height></size></property>
+  <layout class="QVBoxLayout" name="depositDialogLayout">
+   <item><widget class="QLabel" name="depositDialogTitleLabel"><property name="font"><font><pointsize>16</pointsize><bold>true</bold></font></property><property name="text"><string>新增定期存款</string></property></widget></item>
+   <item>
+    <widget class="QGroupBox" name="depositAmountGroupBox">
+     <property name="title"><string>本金</string></property>
+     <layout class="QFormLayout" name="depositAmountLayout">
+      <item row="0" column="0"><widget class="QLabel" name="depositAmountLabel"><property name="text"><string>存款金额（元）</string></property></widget></item>
+      <item row="0" column="1"><widget class="QLineEdit" name="depositAmountEdit"><property name="placeholderText"><string>例如：10000.50</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="depositTermGroupBox">
+     <property name="title"><string>储种</string></property>
+     <layout class="QHBoxLayout" name="depositTermLayout">
+      <item><widget class="QRadioButton" name="oneYearTermRadioButton"><property name="text"><string>一年期</string></property><property name="checked"><bool>true</bool></property><attribute name="buttonGroup"><string notr="true">depositTermButtonGroup</string></attribute></widget></item>
+      <item><widget class="QRadioButton" name="threeYearTermRadioButton"><property name="text"><string>三年期</string></property><attribute name="buttonGroup"><string notr="true">depositTermButtonGroup</string></attribute></widget></item>
+      <item><widget class="QRadioButton" name="fiveYearTermRadioButton"><property name="text"><string>五年期</string></property><attribute name="buttonGroup"><string notr="true">depositTermButtonGroup</string></attribute></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="depositSummaryGroupBox">
+     <property name="title"><string>存款摘要</string></property>
+     <layout class="QFormLayout" name="depositSummaryLayout">
+      <item row="0" column="0"><widget class="QLabel" name="depositRateCaptionLabel"><property name="text"><string>年利率</string></property></widget></item>
+      <item row="0" column="1"><widget class="QLabel" name="depositRateLabel"><property name="text"><string>1.98%</string></property></widget></item>
+      <item row="1" column="0"><widget class="QLabel" name="depositStartDateCaptionLabel"><property name="text"><string>存入日期</string></property></widget></item>
+      <item row="1" column="1"><widget class="QLabel" name="depositStartDateLabel"><property name="text"><string>—</string></property></widget></item>
+      <item row="2" column="0"><widget class="QLabel" name="depositMaturityDateCaptionLabel"><property name="text"><string>到期日期</string></property></widget></item>
+      <item row="2" column="1"><widget class="QLabel" name="depositMaturityDateLabel"><property name="text"><string>—</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item><widget class="QLabel" name="depositMessageLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><layout class="QHBoxLayout" name="depositButtonLayout"><item><spacer name="depositButtonSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="cancelDepositButton"><property name="text"><string>取消</string></property></widget></item><item><widget class="QPushButton" name="confirmDepositButton"><property name="text"><string>确认存款</string></property><property name="default"><bool>true</bool></property></widget></item></layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups><buttongroup name="depositTermButtonGroup"/></buttongroups>
+</ui>

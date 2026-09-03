@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>WithdrawDialog</class>
+ <widget class="QDialog" name="WithdrawDialog">
+  <property name="windowTitle"><string>支取定期存款</string></property>
+  <property name="minimumSize"><size><width>560</width><height>390</height></size></property>
+  <layout class="QVBoxLayout" name="withdrawDialogLayout">
+   <item><widget class="QLabel" name="withdrawDialogTitleLabel"><property name="font"><font><pointsize>16</pointsize><bold>true</bold></font></property><property name="text"><string>支取选中的定期存款</string></property></widget></item>
+   <item>
+    <widget class="QGroupBox" name="withdrawDepositGroupBox">
+     <property name="title"><string>存款信息</string></property>
+     <layout class="QFormLayout" name="withdrawDepositLayout">
+      <item row="0" column="0"><widget class="QLabel" name="withdrawDepositIdCaptionLabel"><property name="text"><string>存款编号</string></property></widget></item>
+      <item row="0" column="1"><widget class="QLabel" name="withdrawDepositIdLabel"><property name="text"><string>—</string></property></widget></item>
+      <item row="1" column="0"><widget class="QLabel" name="withdrawRemainingPrincipalCaptionLabel"><property name="text"><string>剩余本金</string></property></widget></item>
+      <item row="1" column="1"><widget class="QLabel" name="withdrawRemainingPrincipalLabel"><property name="text"><string>¥0.00</string></property></widget></item>
+      <item row="2" column="0"><widget class="QLabel" name="withdrawAmountLabel"><property name="text"><string>本次支取本金（元）</string></property></widget></item>
+      <item row="2" column="1"><widget class="QLineEdit" name="withdrawAmountEdit"><property name="placeholderText"><string>输入不超过剩余本金的金额</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="withdrawPreviewGroupBox">
+     <property name="title"><string>支取预览</string></property>
+     <layout class="QFormLayout" name="withdrawPreviewLayout">
+      <item row="0" column="0"><widget class="QLabel" name="withdrawKindCaptionLabel"><property name="text"><string>支取类型</string></property></widget></item>
+      <item row="0" column="1"><widget class="QLabel" name="withdrawKindLabel"><property name="text"><string>等待输入</string></property></widget></item>
+      <item row="1" column="0"><widget class="QLabel" name="withdrawInterestCaptionLabel"><property name="text"><string>预计利息</string></property></widget></item>
+      <item row="1" column="1"><widget class="QLabel" name="withdrawInterestLabel"><property name="text"><string>¥0.00</string></property></widget></item>
+      <item row="2" column="0"><widget class="QLabel" name="withdrawPayoutCaptionLabel"><property name="text"><string>实际支付</string></property></widget></item>
+      <item row="2" column="1"><widget class="QLabel" name="withdrawPayoutLabel"><property name="font"><font><bold>true</bold></font></property><property name="text"><string>¥0.00</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item><widget class="QLabel" name="withdrawMessageLabel"><property name="text"><string>请输入支取本金以查看计息结果。</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><layout class="QHBoxLayout" name="withdrawButtonLayout"><item><spacer name="withdrawButtonSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="cancelWithdrawButton"><property name="text"><string>取消</string></property></widget></item><item><widget class="QPushButton" name="confirmWithdrawButton"><property name="text"><string>确认支取</string></property><property name="enabled"><bool>false</bool></property><property name="default"><bool>true</bool></property></widget></item></layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

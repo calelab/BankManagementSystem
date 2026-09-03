@@ -149,6 +149,9 @@ public:
     const BankState &state() const;
     const Depositor *currentDepositor() const;
 
+    // 返回服务注入时钟对应的业务日期，供界面显示存入日等非决策信息。
+    QDate businessDate() const;
+
     ServiceResult enterEmployeeSession(const QString &employeeId);
     ServiceResult switchEmployee();
     ServiceResult logoutDepositor();

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>UnfreezeDialog</class>
+ <widget class="QDialog" name="UnfreezeDialog">
+  <property name="windowTitle"><string>解除挂失</string></property>
+  <property name="minimumSize"><size><width>480</width><height>220</height></size></property>
+  <layout class="QVBoxLayout" name="unfreezeDialogLayout">
+   <item><widget class="QLabel" name="unfreezeDialogTitleLabel"><property name="font"><font><pointsize>16</pointsize><bold>true</bold></font></property><property name="text"><string>验证密码并解除挂失</string></property></widget></item>
+   <item><layout class="QFormLayout" name="unfreezeFormLayout"><item row="0" column="0"><widget class="QLabel" name="unfreezePasswordLabel"><property name="text"><string>当前密码</string></property></widget></item><item row="0" column="1"><widget class="QLineEdit" name="unfreezePasswordEdit"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item></layout></item>
+   <item><widget class="QLabel" name="unfreezeMessageLabel"><property name="text"><string>解除挂失失败不会改变账户状态。</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><layout class="QHBoxLayout" name="unfreezeButtonLayout"><item><spacer name="unfreezeButtonSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="cancelUnfreezeButton"><property name="text"><string>取消</string></property></widget></item><item><widget class="QPushButton" name="confirmUnfreezeButton"><property name="text"><string>解除挂失</string></property><property name="default"><bool>true</bool></property></widget></item></layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -103,6 +103,11 @@ const Depositor *BankService::currentDepositor() const
     return state_.findDepositor(currentDepositorAccount_);
 }
 
+QDate BankService::businessDate() const
+{
+    return currentDateTime().date();
+}
+
 ServiceResult BankService::enterEmployeeSession(const QString &employeeId)
 {
     if (!initialized_) {

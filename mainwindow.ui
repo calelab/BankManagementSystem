@@ -2,29 +2,193 @@
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>800</width>
-    <height>600</height>
-   </rect>
-  </property>
-  <property name="windowTitle">
-   <string>MainWindow</string>
-  </property>
-  <widget class="QWidget" name="centralwidget"/>
-  <widget class="QMenuBar" name="menubar">
-   <property name="geometry">
-    <rect>
-     <x>0</x>
-     <y>0</y>
-     <width>800</width>
-     <height>33</height>
-    </rect>
-   </property>
+  <property name="geometry"><rect><x>0</x><y>0</y><width>1180</width><height>800</height></rect></property>
+  <property name="minimumSize"><size><width>980</width><height>680</height></size></property>
+  <property name="windowTitle"><string>银行储蓄管理系统</string></property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QVBoxLayout" name="centralLayout">
+    <item>
+     <widget class="QStackedWidget" name="mainStackedWidget">
+      <property name="currentIndex"><number>0</number></property>
+      <widget class="QWidget" name="employeeLoginPage">
+       <layout class="QVBoxLayout" name="employeeLoginPageLayout">
+        <item><spacer name="employeeLoginTopSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>100</height></size></property></spacer></item>
+        <item alignment="Qt::AlignHCenter">
+         <widget class="QLabel" name="applicationTitleLabel">
+          <property name="font"><font><pointsize>24</pointsize><bold>true</bold></font></property>
+          <property name="text"><string>银行储蓄管理系统</string></property>
+         </widget>
+        </item>
+        <item alignment="Qt::AlignHCenter">
+         <widget class="QGroupBox" name="employeeLoginGroupBox">
+          <property name="minimumSize"><size><width>460</width><height>220</height></size></property>
+          <property name="title"><string>营业员入口</string></property>
+          <layout class="QVBoxLayout" name="employeeLoginFormLayout">
+           <item><widget class="QLabel" name="employeeLoginHintLabel"><property name="text"><string>请输入营业员工号（E01–E10）</string></property></widget></item>
+           <item><widget class="QLineEdit" name="employeeIdEdit"><property name="placeholderText"><string>例如：E03</string></property><property name="maxLength"><number>3</number></property></widget></item>
+           <item><widget class="QPushButton" name="employeeEnterButton"><property name="minimumSize"><size><width>0</width><height>36</height></size></property><property name="text"><string>进入系统</string></property><property name="default"><bool>true</bool></property></widget></item>
+           <item><widget class="QLabel" name="employeeLoginMessageLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+        <item><spacer name="employeeLoginBottomSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>140</height></size></property></spacer></item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="workspacePage">
+       <layout class="QVBoxLayout" name="workspacePageLayout">
+        <item>
+         <layout class="QHBoxLayout" name="workspaceHeaderLayout">
+          <item><widget class="QLabel" name="workspaceTitleLabel"><property name="font"><font><pointsize>20</pointsize><bold>true</bold></font></property><property name="text"><string>营业员工作台</string></property></widget></item>
+          <item><spacer name="workspaceHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+          <item><widget class="QLabel" name="currentEmployeeLabel"><property name="text"><string>当前营业员：未登录</string></property></widget></item>
+          <item><widget class="QLabel" name="currentDepositorLabel"><property name="text"><string>当前储户：未登录</string></property></widget></item>
+         </layout>
+        </item>
+        <item><widget class="QFrame" name="workspaceHeaderLine"><property name="frameShape"><enum>QFrame::HLine</enum></property><property name="frameShadow"><enum>QFrame::Sunken</enum></property></widget></item>
+        <item>
+         <layout class="QGridLayout" name="workspaceButtonLayout">
+          <property name="horizontalSpacing"><number>18</number></property><property name="verticalSpacing"><number>18</number></property>
+          <item row="0" column="0"><widget class="QPushButton" name="openAccountButton"><property name="minimumSize"><size><width>240</width><height>90</height></size></property><property name="text"><string>开户</string></property></widget></item>
+          <item row="0" column="1"><widget class="QPushButton" name="depositorLoginButton"><property name="minimumSize"><size><width>240</width><height>90</height></size></property><property name="text"><string>储户登录</string></property></widget></item>
+          <item row="0" column="2"><widget class="QPushButton" name="allDepositorsButton"><property name="minimumSize"><size><width>240</width><height>90</height></size></property><property name="text"><string>全部储户与查询</string></property></widget></item>
+          <item row="1" column="0"><widget class="QPushButton" name="reserveForecastButton"><property name="minimumSize"><size><width>240</width><height>90</height></size></property><property name="text"><string>未来三日备款</string></property></widget></item>
+          <item row="1" column="1"><widget class="QPushButton" name="auditLogButton"><property name="minimumSize"><size><width>240</width><height>90</height></size></property><property name="text"><string>我的审计日志</string></property></widget></item>
+          <item row="1" column="2"><widget class="QPushButton" name="switchEmployeeButton"><property name="minimumSize"><size><width>240</width><height>90</height></size></property><property name="text"><string>更换营业员</string></property></widget></item>
+         </layout>
+        </item>
+        <item><widget class="QLabel" name="workspaceMessageLabel"><property name="text"><string>请选择要办理的业务。</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+        <item><spacer name="workspaceBottomSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>120</height></size></property></spacer></item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="openAccountPage">
+       <layout class="QVBoxLayout" name="openAccountPageLayout">
+        <item><widget class="QLabel" name="openAccountTitleLabel"><property name="font"><font><pointsize>20</pointsize><bold>true</bold></font></property><property name="text"><string>创建储户账户</string></property></widget></item>
+        <item>
+         <widget class="QGroupBox" name="openAccountGroupBox">
+          <property name="title"><string>开户信息</string></property>
+          <layout class="QFormLayout" name="openAccountFormLayout">
+           <item row="0" column="0"><widget class="QLabel" name="openAccountNameLabel"><property name="text"><string>姓名</string></property></widget></item>
+           <item row="0" column="1"><widget class="QLineEdit" name="openAccountNameEdit"/></item>
+           <item row="1" column="0"><widget class="QLabel" name="openAccountAddressLabel"><property name="text"><string>地址</string></property></widget></item>
+           <item row="1" column="1"><widget class="QLineEdit" name="openAccountAddressEdit"/></item>
+           <item row="2" column="0"><widget class="QLabel" name="openAccountPasswordLabel"><property name="text"><string>密码</string></property></widget></item>
+           <item row="2" column="1"><widget class="QLineEdit" name="openAccountPasswordEdit"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+           <item row="3" column="0"><widget class="QLabel" name="openAccountConfirmPasswordLabel"><property name="text"><string>确认密码</string></property></widget></item>
+           <item row="3" column="1"><widget class="QLineEdit" name="openAccountConfirmPasswordEdit"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+        <item><widget class="QLabel" name="openAccountMessageLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        <item><layout class="QHBoxLayout" name="openAccountButtonLayout"><item><spacer name="openAccountButtonSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="openAccountCancelButton"><property name="text"><string>返回工作台</string></property></widget></item><item><widget class="QPushButton" name="createAccountButton"><property name="text"><string>创建账户</string></property><property name="default"><bool>true</bool></property></widget></item></layout></item>
+        <item><spacer name="openAccountBottomSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>180</height></size></property></spacer></item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="depositorLoginPage">
+       <layout class="QVBoxLayout" name="depositorLoginPageLayout">
+        <item><widget class="QLabel" name="depositorLoginTitleLabel"><property name="font"><font><pointsize>20</pointsize><bold>true</bold></font></property><property name="text"><string>储户登录</string></property></widget></item>
+        <item>
+         <widget class="QGroupBox" name="depositorLoginGroupBox">
+          <property name="title"><string>账户验证</string></property>
+          <layout class="QFormLayout" name="depositorLoginFormLayout">
+           <item row="0" column="0"><widget class="QLabel" name="accountNumberInputLabel"><property name="text"><string>账号</string></property></widget></item>
+           <item row="0" column="1"><widget class="QLineEdit" name="accountNumberEdit"><property name="placeholderText"><string>请输入数字账号</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel" name="accountPasswordInputLabel"><property name="text"><string>密码</string></property></widget></item>
+           <item row="1" column="1"><widget class="QLineEdit" name="accountPasswordEdit"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+        <item><widget class="QLabel" name="accountLoginMessageLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        <item><layout class="QHBoxLayout" name="accountLoginButtonLayout"><item><spacer name="accountLoginButtonSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="accountLoginCancelButton"><property name="text"><string>返回工作台</string></property></widget></item><item><widget class="QPushButton" name="accountLoginButton"><property name="text"><string>登录账户</string></property><property name="default"><bool>true</bool></property></widget></item></layout></item>
+        <item><spacer name="depositorLoginBottomSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>240</height></size></property></spacer></item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="accountCenterPage">
+       <layout class="QVBoxLayout" name="accountCenterPageLayout">
+        <item>
+         <layout class="QHBoxLayout" name="accountSummaryLayout">
+          <item><widget class="QLabel" name="accountCenterTitleLabel"><property name="font"><font><pointsize>18</pointsize><bold>true</bold></font></property><property name="text"><string>储户账户中心</string></property></widget></item>
+          <item><widget class="QLabel" name="accountNumberLabel"><property name="text"><string>账号：—</string></property></widget></item>
+          <item><widget class="QLabel" name="depositorNameLabel"><property name="text"><string>姓名：—</string></property></widget></item>
+          <item><widget class="QLabel" name="accountStatusLabel"><property name="text"><string>状态：—</string></property></widget></item>
+          <item><widget class="QLabel" name="lostDateLabel"><property name="text"><string>挂失日期：—</string></property></widget></item>
+          <item><widget class="QLabel" name="totalPrincipalLabel"><property name="text"><string>剩余本金：¥0.00</string></property></widget></item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="depositsGroupBox">
+          <property name="title"><string>定期存款</string></property>
+          <layout class="QVBoxLayout" name="depositsLayout">
+           <item><widget class="QTableView" name="depositsTableView"><property name="alternatingRowColors"><bool>true</bool></property><property name="editTriggers"><set>QAbstractItemView::NoEditTriggers</set></property><property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property><property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property></widget></item>
+           <item><widget class="QCheckBox" name="showClosedDepositsCheckBox"><property name="text"><string>显示已结清存款</string></property><property name="checked"><bool>false</bool></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="transactionsGroupBox">
+          <property name="title"><string>完整交易记录</string></property>
+          <layout class="QVBoxLayout" name="transactionsLayout"><item><widget class="QTableView" name="transactionsTableView"><property name="alternatingRowColors"><bool>true</bool></property><property name="editTriggers"><set>QAbstractItemView::NoEditTriggers</set></property><property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property></widget></item></layout>
+         </widget>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="accountActionLayout">
+          <item row="0" column="0"><widget class="QPushButton" name="newDepositButton"><property name="text"><string>新增定期存款</string></property></widget></item>
+          <item row="0" column="1"><widget class="QPushButton" name="withdrawSelectedButton"><property name="text"><string>支取选中存款</string></property><property name="enabled"><bool>false</bool></property></widget></item>
+          <item row="0" column="2"><widget class="QPushButton" name="editProfileButton"><property name="text"><string>修改资料</string></property></widget></item>
+          <item row="0" column="3"><widget class="QPushButton" name="changePasswordButton"><property name="text"><string>修改密码</string></property></widget></item>
+          <item row="1" column="0"><widget class="QPushButton" name="reportLossButton"><property name="text"><string>账户挂失</string></property></widget></item>
+          <item row="1" column="1"><widget class="QPushButton" name="unfreezeAccountButton"><property name="text"><string>解除挂失</string></property><property name="enabled"><bool>false</bool></property></widget></item>
+          <item row="1" column="3"><widget class="QPushButton" name="logoutDepositorButton"><property name="text"><string>退出储户账户</string></property></widget></item>
+         </layout>
+        </item>
+        <item><widget class="QLabel" name="accountMessageLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="allDepositorsPage">
+       <layout class="QVBoxLayout" name="allDepositorsPageLayout">
+        <item><widget class="QLabel" name="allDepositorsTitleLabel"><property name="font"><font><pointsize>20</pointsize><bold>true</bold></font></property><property name="text"><string>全部储户与查询</string></property></widget></item>
+        <item><layout class="QHBoxLayout" name="depositorSearchLayout"><item><widget class="QLineEdit" name="depositorSearchEdit"><property name="placeholderText"><string>输入数字账号精确查询，或输入姓名模糊查询</string></property></widget></item><item><widget class="QComboBox" name="depositorStatusComboBox"><item><property name="text"><string>全部状态</string></property></item><item><property name="text"><string>正常</string></property></item><item><property name="text"><string>挂失</string></property></item></widget></item><item><widget class="QPushButton" name="searchDepositorsButton"><property name="text"><string>查询</string></property></widget></item><item><widget class="QPushButton" name="resetDepositorFilterButton"><property name="text"><string>重置</string></property></widget></item></layout></item>
+        <item><widget class="QTableView" name="allDepositorsTableView"><property name="alternatingRowColors"><bool>true</bool></property><property name="editTriggers"><set>QAbstractItemView::NoEditTriggers</set></property><property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property></widget></item>
+        <item><widget class="QLabel" name="allDepositorsMessageLabel"><property name="text"><string/></property></widget></item>
+        <item><layout class="QHBoxLayout" name="allDepositorsFooterLayout"><item><spacer name="allDepositorsFooterSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="allDepositorsBackButton"><property name="text"><string>返回工作台</string></property></widget></item></layout></item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="reserveForecastPage">
+       <layout class="QVBoxLayout" name="reserveForecastPageLayout">
+        <item><widget class="QLabel" name="reserveForecastTitleLabel"><property name="font"><font><pointsize>20</pointsize><bold>true</bold></font></property><property name="text"><string>未来三日备款</string></property></widget></item>
+        <item><layout class="QHBoxLayout" name="reserveForecastFilterLayout"><item><widget class="QLabel" name="forecastBaseDateLabel"><property name="text"><string>统计基准日期</string></property></widget></item><item><widget class="QDateEdit" name="forecastBaseDateEdit"><property name="calendarPopup"><bool>true</bool></property><property name="displayFormat"><string>yyyy-MM-dd</string></property></widget></item><item><widget class="QPushButton" name="refreshForecastButton"><property name="text"><string>刷新备款</string></property></widget></item><item><spacer name="reserveForecastFilterSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item></layout></item>
+        <item><widget class="QTableView" name="reserveForecastTableView"><property name="alternatingRowColors"><bool>true</bool></property><property name="editTriggers"><set>QAbstractItemView::NoEditTriggers</set></property><property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property></widget></item>
+        <item><widget class="QLabel" name="threeDayReserveTotalLabel"><property name="font"><font><pointsize>14</pointsize><bold>true</bold></font></property><property name="text"><string>三日预计备款总计：¥0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set></property></widget></item>
+        <item><widget class="QLabel" name="reserveForecastMessageLabel"><property name="text"><string/></property></widget></item>
+        <item><layout class="QHBoxLayout" name="reserveForecastFooterLayout"><item><spacer name="reserveForecastFooterSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="reserveForecastBackButton"><property name="text"><string>返回工作台</string></property></widget></item></layout></item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="auditLogPage">
+       <layout class="QVBoxLayout" name="auditLogPageLayout">
+        <item><layout class="QHBoxLayout" name="auditLogHeaderLayout"><item><widget class="QLabel" name="auditLogTitleLabel"><property name="font"><font><pointsize>20</pointsize><bold>true</bold></font></property><property name="text"><string>当前营业员审计日志</string></property></widget></item><item><spacer name="auditLogHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QLabel" name="auditEmployeeLabel"><property name="text"><string>营业员：—</string></property></widget></item></layout></item>
+        <item><layout class="QHBoxLayout" name="auditFilterLayout"><item><widget class="QLabel" name="auditActionLabel"><property name="text"><string>动作筛选</string></property></widget></item><item><widget class="QComboBox" name="auditActionComboBox"/></item><item><widget class="QPushButton" name="refreshAuditButton"><property name="text"><string>刷新日志</string></property></widget></item><item><spacer name="auditFilterSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item></layout></item>
+        <item><widget class="QTableView" name="auditLogTableView"><property name="alternatingRowColors"><bool>true</bool></property><property name="editTriggers"><set>QAbstractItemView::NoEditTriggers</set></property><property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property></widget></item>
+        <item><widget class="QLabel" name="auditLogMessageLabel"><property name="text"><string/></property></widget></item>
+        <item><layout class="QHBoxLayout" name="auditLogFooterLayout"><item><spacer name="auditLogFooterSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="auditLogBackButton"><property name="text"><string>返回工作台</string></property></widget></item></layout></item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry"><rect><x>0</x><y>0</y><width>1180</width><height>24</height></rect></property>
+   <widget class="QMenu" name="sessionMenu"><property name="title"><string>会话</string></property><addaction name="actionReturnWorkspace"/><addaction name="actionLogoutDepositor"/><addaction name="actionSwitchEmployee"/><addaction name="separator"/><addaction name="actionExit"/></widget>
+   <widget class="QMenu" name="queryMenu"><property name="title"><string>查询</string></property><addaction name="actionAllDepositors"/><addaction name="actionReserveForecast"/><addaction name="actionAuditLog"/></widget>
+   <addaction name="sessionMenu"/><addaction name="queryMenu"/>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <action name="actionReturnWorkspace"><property name="text"><string>返回工作台</string></property></action>
+  <action name="actionLogoutDepositor"><property name="text"><string>退出储户账户</string></property></action>
+  <action name="actionSwitchEmployee"><property name="text"><string>更换营业员</string></property></action>
+  <action name="actionExit"><property name="text"><string>退出程序</string></property></action>
+  <action name="actionAllDepositors"><property name="text"><string>全部储户</string></property></action>
+  <action name="actionReserveForecast"><property name="text"><string>未来三日备款</string></property></action>
+  <action name="actionAuditLog"><property name="text"><string>审计日志</string></property></action>
  </widget>
  <resources/>
  <connections/>

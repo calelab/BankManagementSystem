@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Widgets Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Network Widgets Test)
 
 qt_standard_project_setup()
 
@@ -113,23 +113,52 @@ target_link_libraries(BankServices
         Qt::Core
 )
 
-qt_add_executable(BankManagementSystem
-    WIN32 MACOSX_BUNDLE
-    main.cpp
+qt_add_library(BankUi STATIC
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
+    ui/depositdialog.cpp
+    ui/depositdialog.h
+    ui/depositdialog.ui
+    ui/passworddialog.cpp
+    ui/passworddialog.h
+    ui/passworddialog.ui
+    ui/profiledialog.cpp
+    ui/profiledialog.h
+    ui/profiledialog.ui
+    ui/unfreezedialog.cpp
+    ui/unfreezedialog.h
+    ui/unfreezedialog.ui
+    ui/withdrawdialog.cpp
+    ui/withdrawdialog.h
+    ui/withdrawdialog.ui
 )
 
-target_link_libraries(BankManagementSystem
-    PRIVATE
+target_include_directories(BankUi
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(BankUi
+    PUBLIC
         BankDomain
         BankAudit
         BankPersistence
         BankSecurity
         BankServices
         Qt::Core
+        Qt::Gui
         Qt::Widgets
+)
+
+qt_add_executable(BankManagementSystem
+    WIN32 MACOSX_BUNDLE
+    main.cpp
+)
+
+target_link_libraries(BankManagementSystem
+    PRIVATE
+        BankUi
 )
 
 enable_testing()
@@ -197,6 +226,25 @@ target_link_libraries(BankServiceTests
 )
 
 add_test(NAME BankServiceTests COMMAND BankServiceTests)
+
+qt_add_executable(BankUiTests
+    tests/tst_ui.cpp
+)
+
+set_target_properties(BankUiTests PROPERTIES
+    MACOSX_BUNDLE FALSE
+)
+
+target_link_libraries(BankUiTests
+    PRIVATE
+        BankUi
+        Qt::Test
+)
+
+add_test(NAME BankUiTests COMMAND BankUiTests)
+set_tests_properties(BankUiTests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
 
 install(TARGETS BankManagementSystem
     BUNDLE  DESTINATION .

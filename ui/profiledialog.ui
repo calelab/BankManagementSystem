@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ProfileDialog</class>
+ <widget class="QDialog" name="ProfileDialog">
+  <property name="windowTitle"><string>修改个人资料</string></property>
+  <property name="minimumSize"><size><width>500</width><height>260</height></size></property>
+  <layout class="QVBoxLayout" name="profileDialogLayout">
+   <item><widget class="QLabel" name="profileDialogTitleLabel"><property name="font"><font><pointsize>16</pointsize><bold>true</bold></font></property><property name="text"><string>修改姓名和地址</string></property></widget></item>
+   <item><widget class="QGroupBox" name="profileGroupBox"><property name="title"><string>个人资料</string></property><layout class="QFormLayout" name="profileFormLayout"><item row="0" column="0"><widget class="QLabel" name="profileNameLabel"><property name="text"><string>姓名</string></property></widget></item><item row="0" column="1"><widget class="QLineEdit" name="profileNameEdit"/></item><item row="1" column="0"><widget class="QLabel" name="profileAddressLabel"><property name="text"><string>地址</string></property></widget></item><item row="1" column="1"><widget class="QLineEdit" name="profileAddressEdit"/></item></layout></widget></item>
+   <item><widget class="QLabel" name="profileMessageLabel"><property name="text"><string>账号、开户营业员和开户时间不会改变。</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><layout class="QHBoxLayout" name="profileButtonLayout"><item><spacer name="profileButtonSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="cancelProfileButton"><property name="text"><string>取消</string></property></widget></item><item><widget class="QPushButton" name="confirmProfileButton"><property name="text"><string>保存修改</string></property><property name="default"><bool>true</bool></property></widget></item></layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
