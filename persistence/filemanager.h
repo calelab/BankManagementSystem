@@ -35,6 +35,7 @@ public:
     const QString &dataDirectory() const;
     QString dataFilePath() const;
     QString storageModeDisplayName() const;
+    const std::shared_ptr<const DataCodec> &codec() const;
 
     // 文件不存在时返回新的空 BankState；损坏数据绝不会被静默覆盖。
     FileLoadResult load() const;

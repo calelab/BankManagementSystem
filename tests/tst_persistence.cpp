@@ -96,6 +96,11 @@ public:
         return QStringLiteral("bank_data.json");
     }
 
+    QString auditFileSuffix() const override
+    {
+        return QStringLiteral(".audit.json");
+    }
+
     QString displayName() const override
     {
         return QStringLiteral("故障注入编码器");

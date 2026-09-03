@@ -25,6 +25,11 @@ QString PlainJsonCodec::fileName() const
     return QStringLiteral("bank_data.json");
 }
 
+QString PlainJsonCodec::auditFileSuffix() const
+{
+    return QStringLiteral(".audit.json");
+}
+
 QString PlainJsonCodec::displayName() const
 {
     return QStringLiteral("明文 JSON 兼容模式");

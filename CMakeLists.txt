@@ -10,6 +10,8 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Widgets Test)
 qt_standard_project_setup()
 
 qt_add_library(BankDomain STATIC
+    models/auditrecord.cpp
+    models/auditrecord.h
     models/bankstate.cpp
     models/bankstate.h
     models/banktypes.cpp
@@ -75,6 +77,23 @@ target_link_libraries(BankSecurity
         Qt::Network
 )
 
+qt_add_library(BankAudit STATIC
+    audit/auditlogger.cpp
+    audit/auditlogger.h
+)
+
+target_include_directories(BankAudit
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(BankAudit
+    PUBLIC
+        BankDomain
+        BankPersistence
+        Qt::Core
+)
+
 qt_add_library(BankServices STATIC
     services/bankservice.cpp
     services/bankservice.h
@@ -88,6 +107,7 @@ target_include_directories(BankServices
 target_link_libraries(BankServices
     PUBLIC
         BankDomain
+        BankAudit
         BankPersistence
         BankSecurity
         Qt::Core
@@ -104,6 +124,7 @@ qt_add_executable(BankManagementSystem
 target_link_libraries(BankManagementSystem
     PRIVATE
         BankDomain
+        BankAudit
         BankPersistence
         BankSecurity
         BankServices
@@ -144,6 +165,22 @@ target_link_libraries(BankPersistenceTests
 )
 
 add_test(NAME BankPersistenceTests COMMAND BankPersistenceTests)
+
+qt_add_executable(BankAuditTests
+    tests/tst_audit.cpp
+)
+
+set_target_properties(BankAuditTests PROPERTIES
+    MACOSX_BUNDLE FALSE
+)
+
+target_link_libraries(BankAuditTests
+    PRIVATE
+        BankAudit
+        Qt::Test
+)
+
+add_test(NAME BankAuditTests COMMAND BankAuditTests)
 
 qt_add_executable(BankServiceTests
     tests/tst_bankservice.cpp

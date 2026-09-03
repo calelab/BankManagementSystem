@@ -13,6 +13,7 @@ public:
     virtual ~DataCodec() = default;
 
     virtual QString fileName() const = 0;
+    virtual QString auditFileSuffix() const = 0;
     virtual QString displayName() const = 0;
     virtual bool encode(const QByteArray &plainJson,
                         QByteArray *encodedData,
@@ -27,6 +28,7 @@ class PlainJsonCodec final : public DataCodec
 {
 public:
     QString fileName() const override;
+    QString auditFileSuffix() const override;
     QString displayName() const override;
     bool encode(const QByteArray &plainJson,
                 QByteArray *encodedData,

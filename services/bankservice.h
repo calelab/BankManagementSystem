@@ -1,6 +1,7 @@
 #ifndef BANKSERVICE_H
 #define BANKSERVICE_H
 
+#include "audit/auditlogger.h"
 #include "models/bankstate.h"
 #include "persistence/filemanager.h"
 #include "services/interestcalculator.h"
@@ -9,9 +10,11 @@
 #include <QHash>
 #include <QSet>
 #include <QString>
+#include <QVector>
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 namespace bank {
 
@@ -31,6 +34,7 @@ enum class ServiceError {
     DepositNotFound,
     InsufficientPrincipal,
     PersistenceFailure,
+    AuditLoadFailure,
     InternalStateError
 };
 
@@ -38,6 +42,7 @@ struct ServiceResult {
     bool success = false;
     ServiceError error = ServiceError::None;
     QString message;
+    QString warningMessage;
 };
 
 struct OpenAccountResult {
@@ -63,6 +68,66 @@ struct WithdrawalResult {
     QString transactionId;
     qint64 remainingPrincipalCents = 0;
     WithdrawalCalculation calculation;
+};
+
+enum class DepositorStatusFilter {
+    All,
+    Normal,
+    Lost
+};
+
+// 营业员查询只返回业务展示字段，不向 UI 暴露密码 Salt、哈希或派生参数。
+struct DepositorSummary {
+    QString accountNumber;
+    QString name;
+    QString address;
+    bool lost = false;
+    std::optional<QDate> lostDate;
+    QString openingEmployeeId;
+    int depositCount = 0;
+    qint64 remainingPrincipalCents = 0;
+};
+
+struct DepositorQueryResult {
+    ServiceResult status;
+    QVector<DepositorSummary> depositors;
+};
+
+// 完整存款和交易明细仅由当前已经通过密码登录的储户会话取得。
+struct AccountDetails {
+    QString accountNumber;
+    QString name;
+    QString address;
+    bool lost = false;
+    std::optional<QDate> lostDate;
+    QString openingEmployeeId;
+    QDateTime createdAt;
+    QVector<FixedDeposit> deposits;
+    QVector<Transaction> transactions;
+};
+
+struct AccountDetailsResult {
+    ServiceResult status;
+    std::optional<AccountDetails> details;
+};
+
+struct DailyReserveForecast {
+    QDate date;
+    int depositCount = 0;
+    qint64 principalCents = 0;
+    qint64 interestCents = 0;
+    qint64 reserveCents = 0;
+};
+
+struct ReserveForecastResult {
+    ServiceResult status;
+    QVector<DailyReserveForecast> days;
+    qint64 totalReserveCents = 0;
+};
+
+struct AuditQueryResult {
+    ServiceResult status;
+    QVector<AuditRecord> records;
 };
 
 // BankService 是 UI 的唯一核心业务入口，负责会话、校验、候选状态和即时保存。
@@ -112,6 +177,20 @@ public:
     ServiceResult reportLoss();
     ServiceResult unfreezeAccount(const QString &currentPassword);
 
+    // 三个查询条件可组合；空账号/姓名表示不启用相应条件。
+    DepositorQueryResult queryDepositors(
+        const QString &exactAccountNumber = {},
+        const QString &nameContains = {},
+        DepositorStatusFilter statusFilter = DepositorStatusFilter::All) const;
+
+    AccountDetailsResult currentAccountDetails() const;
+
+    // 空基准日期使用注入时钟的当前日期，结果始终包含明天起连续三天。
+    ReserveForecastResult reserveForecast(const QDate &baseDate = {}) const;
+
+    // 默认读取当前营业员的全部记录，动作筛选采用稳定动作码精确匹配。
+    AuditQueryResult currentEmployeeAudit(const QString &actionFilter = {}) const;
+
 private:
     struct LoginAttemptState {
         int consecutiveFailures = 0;
@@ -122,11 +201,21 @@ private:
     static ServiceResult failed(ServiceError error, const QString &message);
     ServiceResult requireEmployeeSession() const;
     ServiceResult requireDepositorSession(bool allowLost) const;
-    ServiceResult commitCandidate(BankState candidate, const QString &successMessage);
+    ServiceResult commitCandidate(BankState candidate,
+                                  const QString &successMessage,
+                                  const QString &auditAccountNumber = {});
+    void appendAudit(ServiceResult *status,
+                     const QString &accountNumber,
+                     const QString &action,
+                     qint64 principalAmountCents,
+                     qint64 interestAmountCents,
+                     AuditResult result,
+                     const QString &reasonCode) const;
     QDateTime currentDateTime() const;
     bool registerLoginFailure(const QString &accountNumber, const QDateTime &now);
 
     std::shared_ptr<persistence::FileManager> fileManager_;
+    std::unique_ptr<audit::AuditLogger> auditLogger_;
     Clock clock_;
     BankState state_;
     QSet<QString> validEmployeeIds_;

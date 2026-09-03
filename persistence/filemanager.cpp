@@ -41,6 +41,11 @@ QString FileManager::storageModeDisplayName() const
     return codec_->displayName();
 }
 
+const std::shared_ptr<const DataCodec> &FileManager::codec() const
+{
+    return codec_;
+}
+
 FileLoadResult FileManager::load() const
 {
     FileLoadResult result;

@@ -9,6 +9,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
@@ -52,10 +53,17 @@ class ToggleCodec final : public DataCodec
 {
 public:
     bool rejectEncoding = false;
+    bool rejectAuditEncoding = false;
+    bool rejectCoreEncoding = false;
 
     QString fileName() const override
     {
         return QStringLiteral("bank_data.json");
+    }
+
+    QString auditFileSuffix() const override
+    {
+        return QStringLiteral(".audit.json");
     }
 
     QString displayName() const override
@@ -67,7 +75,10 @@ public:
                 QByteArray *encodedData,
                 QString *errorMessage) const override
     {
-        if (rejectEncoding) {
+        const bool isAuditDocument = plainJson.contains("\"records\"");
+        if (rejectEncoding
+            || (rejectAuditEncoding && isAuditDocument)
+            || (rejectCoreEncoding && !isAuditDocument)) {
             if (errorMessage) {
                 *errorMessage = QStringLiteral("测试保存失败");
             }
@@ -101,8 +112,10 @@ public:
 class ServiceHarness
 {
 public:
-    explicit ServiceHarness(std::shared_ptr<ToggleCodec> selectedCodec = nullptr)
-        : now(QDateTime(QDate(2026, 1, 1), QTime(9, 0)))
+    explicit ServiceHarness(
+        std::shared_ptr<ToggleCodec> selectedCodec = nullptr,
+        QDateTime startingTime = QDateTime(QDate(2026, 1, 1), QTime(9, 0)))
+        : now(std::move(startingTime))
         , codec(selectedCodec ? std::move(selectedCodec) : std::make_shared<ToggleCodec>())
     {
         if (!temporaryDirectory.isValid()) {
@@ -163,6 +176,12 @@ private slots:
     void updatesProfileAndReplacesPasswordSalt();
     void enforcesLossRestrictionsAndPasswordUnfreeze();
     void clearsDepositorWhenEmployeeChanges();
+    void auditsRequiredBusinessEventsAndFiltersActions();
+    void isolatesAuditRecordsByCurrentEmployee();
+    void warnsWithoutRollingBackWhenAuditSaveFails();
+    void queriesDepositorsAndProtectsFullDetails();
+    void calculatesThreeDayReserveFromRemainingPrincipal();
+    void roundsEachReserveDepositBeforeDailyAggregation();
     void rollsBackEveryMutationWhenSavingFails();
 };
 
@@ -496,6 +515,313 @@ void BankServiceTest::clearsDepositorWhenEmployeeChanges()
     QVERIFY(harness.service->switchEmployee().success);
     QVERIFY(harness.service->currentEmployeeId().isEmpty());
     QVERIFY(harness.service->currentDepositorAccount().isEmpty());
+}
+
+void BankServiceTest::auditsRequiredBusinessEventsAndFiltersActions()
+{
+    ServiceHarness harness;
+    const QString oldPassword = QStringLiteral("SafePass123");
+    const QString newPassword = QStringLiteral("NewSafePass456");
+    const QString account = harness.openAndLogin(oldPassword);
+    QVERIFY(harness.service->logoutDepositor().success);
+
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        QCOMPARE(harness.service->loginDepositor(account, QStringLiteral("wrong")).error,
+                 ServiceError::AuthenticationFailed);
+    }
+    QCOMPARE(harness.service->loginDepositor(account, QStringLiteral("wrong")).error,
+             ServiceError::AccountTemporarilyLocked);
+    QCOMPARE(harness.service->loginDepositor(account, oldPassword).error,
+             ServiceError::AccountTemporarilyLocked);
+    harness.now = harness.now.addSecs(60);
+    QVERIFY(harness.service->loginDepositor(account, oldPassword).success);
+
+    const DepositResult earlyDeposit = harness.service->addFixedDeposit(
+        1000000, DepositTerm::OneYear);
+    QVERIFY(earlyDeposit.status.success);
+    harness.now = harness.now.addDays(1);
+    QVERIFY(harness.service->withdraw(earlyDeposit.depositId, 400000).status.success);
+    QVERIFY(harness.service->updateProfile(QStringLiteral("张三丰"),
+                                           QStringLiteral("上海市浦东新区"))
+                .success);
+    QVERIFY(harness.service->changePassword(oldPassword, newPassword, newPassword).success);
+
+    const DepositResult maturedDeposit = harness.service->addFixedDeposit(
+        500000, DepositTerm::OneYear);
+    QVERIFY(maturedDeposit.status.success);
+    harness.now = QDateTime(harness.now.date().addYears(1), QTime(9, 0));
+    QVERIFY(harness.service->withdraw(maturedDeposit.depositId, 200000).status.success);
+    QVERIFY(harness.service->reportLoss().success);
+    QCOMPARE(harness.service->unfreezeAccount(QStringLiteral("wrong")).error,
+             ServiceError::AuthenticationFailed);
+    QVERIFY(harness.service->unfreezeAccount(newPassword).success);
+
+    const AuditQueryResult audit = harness.service->currentEmployeeAudit();
+    QVERIFY2(audit.status.success, qPrintable(audit.status.message));
+    QVERIFY(!audit.records.isEmpty());
+    const auto hasAudit = [&audit](const QString &action,
+                                   AuditResult expectedResult,
+                                   const QString &reasonCode = QString()) {
+        return std::any_of(audit.records.cbegin(),
+                           audit.records.cend(),
+                           [&](const AuditRecord &record) {
+                               return record.action() == action
+                                      && record.result() == expectedResult
+                                      && (reasonCode.isEmpty()
+                                          || record.reasonCode() == reasonCode);
+                           });
+    };
+    QVERIFY(hasAudit(QStringLiteral("OPEN_ACCOUNT"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("LOGIN"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("LOGIN"),
+                     AuditResult::Failure,
+                     QStringLiteral("AUTH_FAILED")));
+    QVERIFY(hasAudit(QStringLiteral("LOGIN"),
+                     AuditResult::Failure,
+                     QStringLiteral("ACCOUNT_LOCKED")));
+    QVERIFY(hasAudit(QStringLiteral("DEPOSIT"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("EARLY_WITHDRAW"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("MATURED_WITHDRAW"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("UPDATE_PROFILE"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("CHANGE_PASSWORD"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("REPORT_LOSS"), AuditResult::Success));
+    QVERIFY(hasAudit(QStringLiteral("UNFREEZE_ACCOUNT"),
+                     AuditResult::Failure,
+                     QStringLiteral("AUTH_FAILED")));
+    QVERIFY(hasAudit(QStringLiteral("UNFREEZE_ACCOUNT"), AuditResult::Success));
+
+    const AuditQueryResult unfreezeOnly = harness.service->currentEmployeeAudit(
+        QStringLiteral("UNFREEZE_ACCOUNT"));
+    QVERIFY(unfreezeOnly.status.success);
+    QCOMPARE(unfreezeOnly.records.size(), 2);
+    QCOMPARE(harness.service->currentEmployeeAudit(QStringLiteral("bad-action")).status.error,
+             ServiceError::InvalidInput);
+
+    const QString auditPath = QDir(harness.temporaryDirectory.path())
+                                  .filePath(QStringLiteral("audit/E03.audit.json"));
+    const QByteArray diskAudit = readFile(auditPath);
+    QVERIFY(!diskAudit.contains(oldPassword.toUtf8()));
+    QVERIFY(!diskAudit.contains(newPassword.toUtf8()));
+}
+
+void BankServiceTest::isolatesAuditRecordsByCurrentEmployee()
+{
+    ServiceHarness harness;
+    const QString account = harness.openAndLogin();
+    const AuditQueryResult employeeThreeBefore = harness.service->currentEmployeeAudit();
+    QVERIFY(employeeThreeBefore.status.success);
+    QVERIFY(employeeThreeBefore.records.size() >= 2);
+
+    QVERIFY(harness.service->enterEmployeeSession(QStringLiteral("E04")).success);
+    QVERIFY(harness.service->loginDepositor(account, QStringLiteral("SafePass123")).success);
+    const AuditQueryResult employeeFour = harness.service->currentEmployeeAudit();
+    QVERIFY(employeeFour.status.success);
+    QCOMPARE(employeeFour.records.size(), 1);
+    QCOMPARE(employeeFour.records.first().employeeId(), QStringLiteral("E04"));
+
+    QVERIFY(harness.service->enterEmployeeSession(QStringLiteral("E03")).success);
+    const AuditQueryResult employeeThreeAfter = harness.service->currentEmployeeAudit();
+    QVERIFY(employeeThreeAfter.status.success);
+    QCOMPARE(employeeThreeAfter.records.size(), employeeThreeBefore.records.size());
+    for (const AuditRecord &record : employeeThreeAfter.records) {
+        QCOMPARE(record.employeeId(), QStringLiteral("E03"));
+    }
+}
+
+void BankServiceTest::warnsWithoutRollingBackWhenAuditSaveFails()
+{
+    const auto codec = std::make_shared<ToggleCodec>();
+    ServiceHarness harness(codec);
+    codec->rejectAuditEncoding = true;
+
+    const OpenAccountResult opened = harness.service->openAccount(
+        QStringLiteral("张三"),
+        QStringLiteral("上海市"),
+        QStringLiteral("SafePass123"),
+        QStringLiteral("SafePass123"));
+    QVERIFY(opened.status.success);
+    QVERIFY(opened.status.warningMessage.startsWith(
+        QStringLiteral("业务已完成，审计日志保存失败")));
+    QVERIFY(harness.service->state().findDepositor(opened.accountNumber));
+    QVERIFY(QFileInfo::exists(harness.fileManager->dataFilePath()));
+    QVERIFY(!QFileInfo::exists(QDir(harness.temporaryDirectory.path())
+                                   .filePath(QStringLiteral("audit/E03.audit.json"))));
+
+    BankService restarted(harness.fileManager, [&harness] { return harness.now; });
+    QVERIFY(restarted.initialize().success);
+    QVERIFY(restarted.enterEmployeeSession(QStringLiteral("E03")).success);
+    QVERIFY(restarted.state().findDepositor(opened.accountNumber));
+
+    codec->rejectAuditEncoding = false;
+    const ServiceResult login = restarted.loginDepositor(opened.accountNumber,
+                                                         QStringLiteral("SafePass123"));
+    QVERIFY(login.success);
+    QVERIFY(login.warningMessage.isEmpty());
+    const AuditQueryResult audit = restarted.currentEmployeeAudit();
+    QVERIFY(audit.status.success);
+    QCOMPARE(audit.records.size(), 1);
+    QCOMPARE(audit.records.first().action(), QStringLiteral("LOGIN"));
+
+    const QByteArray coreBeforeFailure = readFile(harness.fileManager->dataFilePath());
+    const QByteArray stateBeforeFailure = serializeState(restarted.state());
+    codec->rejectCoreEncoding = true;
+    const DepositResult failedDeposit = restarted.addFixedDeposit(
+        100000, DepositTerm::OneYear);
+    QCOMPARE(failedDeposit.status.error, ServiceError::PersistenceFailure);
+    QVERIFY(failedDeposit.status.warningMessage.isEmpty());
+    QCOMPARE(serializeState(restarted.state()), stateBeforeFailure);
+    QCOMPARE(readFile(harness.fileManager->dataFilePath()), coreBeforeFailure);
+
+    const AuditQueryResult afterCoreFailure = restarted.currentEmployeeAudit();
+    QVERIFY(afterCoreFailure.status.success);
+    QVERIFY(std::any_of(afterCoreFailure.records.cbegin(),
+                        afterCoreFailure.records.cend(),
+                        [](const AuditRecord &record) {
+                            return record.action() == QStringLiteral("CORE_DATA_SAVE")
+                                   && record.result() == AuditResult::Warning
+                                   && record.reasonCode()
+                                          == QStringLiteral("PERSISTENCE_ERROR");
+                        }));
+}
+
+void BankServiceTest::queriesDepositorsAndProtectsFullDetails()
+{
+    ServiceHarness harness;
+    const QString password = QStringLiteral("SafePass123");
+    const OpenAccountResult first = harness.service->openAccount(
+        QStringLiteral("张三丰"), QStringLiteral("上海市"), password, password);
+    QVERIFY(first.status.success);
+    QVERIFY(harness.service->loginDepositor(first.accountNumber, password).success);
+    QVERIFY(harness.service->addFixedDeposit(100000, DepositTerm::OneYear).status.success);
+    QVERIFY(harness.service->addFixedDeposit(200000, DepositTerm::ThreeYears).status.success);
+    QVERIFY(harness.service->logoutDepositor().success);
+
+    const OpenAccountResult second = harness.service->openAccount(
+        QStringLiteral("张无忌"), QStringLiteral("北京市"), password, password);
+    QVERIFY(second.status.success);
+    QVERIFY(harness.service->loginDepositor(second.accountNumber, password).success);
+    QVERIFY(harness.service->reportLoss().success);
+
+    const DepositorQueryResult all = harness.service->queryDepositors();
+    QVERIFY(all.status.success);
+    QCOMPARE(all.depositors.size(), 2);
+    QCOMPARE(all.depositors.at(0).accountNumber, first.accountNumber);
+    QCOMPARE(all.depositors.at(0).depositCount, 2);
+    QCOMPARE(all.depositors.at(0).remainingPrincipalCents, qint64(300000));
+    QCOMPARE(all.depositors.at(0).openingEmployeeId, QStringLiteral("E03"));
+    QCOMPARE(all.depositors.at(1).lost, true);
+    QVERIFY(all.depositors.at(1).lostDate.has_value());
+
+    const DepositorQueryResult exact = harness.service->queryDepositors(first.accountNumber);
+    QVERIFY(exact.status.success);
+    QCOMPARE(exact.depositors.size(), 1);
+    QCOMPARE(exact.depositors.first().name, QStringLiteral("张三丰"));
+    QCOMPARE(harness.service->queryDepositors(QStringLiteral("bad-account")).status.error,
+             ServiceError::InvalidInput);
+
+    const DepositorQueryResult fuzzy = harness.service->queryDepositors(
+        {}, QStringLiteral("张"));
+    QCOMPARE(fuzzy.depositors.size(), 2);
+    const DepositorQueryResult normal = harness.service->queryDepositors(
+        {}, {}, DepositorStatusFilter::Normal);
+    const DepositorQueryResult lost = harness.service->queryDepositors(
+        {}, {}, DepositorStatusFilter::Lost);
+    QCOMPARE(normal.depositors.size(), 1);
+    QCOMPARE(normal.depositors.first().accountNumber, first.accountNumber);
+    QCOMPARE(lost.depositors.size(), 1);
+    QCOMPARE(lost.depositors.first().accountNumber, second.accountNumber);
+
+    const AccountDetailsResult lostDetails = harness.service->currentAccountDetails();
+    QVERIFY(lostDetails.status.success);
+    QVERIFY(lostDetails.details.has_value());
+    QCOMPARE(lostDetails.details->accountNumber, second.accountNumber);
+    QCOMPARE(lostDetails.details->lost, true);
+    QVERIFY(harness.service->logoutDepositor().success);
+    QCOMPARE(harness.service->currentAccountDetails().status.error,
+             ServiceError::DepositorSessionRequired);
+
+    QVERIFY(harness.service->loginDepositor(first.accountNumber, password).success);
+    const AccountDetailsResult firstDetails = harness.service->currentAccountDetails();
+    QVERIFY(firstDetails.status.success);
+    QCOMPARE(firstDetails.details->accountNumber, first.accountNumber);
+    QCOMPARE(firstDetails.details->deposits.size(), 2);
+    QCOMPARE(firstDetails.details->transactions.size(), 2);
+}
+
+void BankServiceTest::calculatesThreeDayReserveFromRemainingPrincipal()
+{
+    ServiceHarness harness(nullptr,
+                           QDateTime(QDate(2024, 1, 1), QTime(9, 0)));
+    harness.openAndLogin();
+
+    harness.now = QDateTime(QDate(2025, 1, 1), QTime(9, 0));
+    QVERIFY(harness.service->addFixedDeposit(100000, DepositTerm::OneYear).status.success);
+    harness.now = QDateTime(QDate(2025, 1, 2), QTime(9, 0));
+    const DepositResult tomorrow = harness.service->addFixedDeposit(
+        200000, DepositTerm::OneYear);
+    QVERIFY(tomorrow.status.success);
+    harness.now = QDateTime(QDate(2025, 1, 3), QTime(9, 0));
+    const DepositResult closedDayTwo = harness.service->addFixedDeposit(
+        400000, DepositTerm::OneYear);
+    QVERIFY(closedDayTwo.status.success);
+    harness.now = QDateTime(QDate(2025, 1, 4), QTime(9, 0));
+    const DepositResult partialDayThree = harness.service->addFixedDeposit(
+        300000, DepositTerm::OneYear);
+    QVERIFY(partialDayThree.status.success);
+    harness.now = QDateTime(QDate(2025, 1, 5), QTime(9, 0));
+    QVERIFY(harness.service->addFixedDeposit(500000, DepositTerm::OneYear).status.success);
+
+    harness.now = QDateTime(QDate(2025, 6, 1), QTime(9, 0));
+    QVERIFY(harness.service->withdraw(closedDayTwo.depositId, 400000).status.success);
+    QVERIFY(harness.service->withdraw(partialDayThree.depositId, 100000).status.success);
+
+    const QDate baseDate(2026, 1, 1);
+    const ReserveForecastResult forecast = harness.service->reserveForecast(baseDate);
+    QVERIFY2(forecast.status.success, qPrintable(forecast.status.message));
+    QCOMPARE(forecast.days.size(), 3);
+    QCOMPARE(forecast.days.at(0).date, QDate(2026, 1, 2));
+    QCOMPARE(forecast.days.at(0).depositCount, 1);
+    QCOMPARE(forecast.days.at(0).principalCents, qint64(200000));
+    QCOMPARE(forecast.days.at(0).interestCents, qint64(3960));
+    QCOMPARE(forecast.days.at(0).reserveCents, qint64(203960));
+    QCOMPARE(forecast.days.at(1).date, QDate(2026, 1, 3));
+    QCOMPARE(forecast.days.at(1).depositCount, 0);
+    QCOMPARE(forecast.days.at(1).reserveCents, qint64(0));
+    QCOMPARE(forecast.days.at(2).date, QDate(2026, 1, 4));
+    QCOMPARE(forecast.days.at(2).depositCount, 1);
+    QCOMPARE(forecast.days.at(2).principalCents, qint64(200000));
+    QCOMPARE(forecast.days.at(2).interestCents, qint64(3960));
+    QCOMPARE(forecast.days.at(2).reserveCents, qint64(203960));
+    QCOMPARE(forecast.totalReserveCents, qint64(407920));
+
+    harness.now = QDateTime(baseDate, QTime(12, 0));
+    const ReserveForecastResult clockBased = harness.service->reserveForecast();
+    QVERIFY(clockBased.status.success);
+    QCOMPARE(clockBased.totalReserveCents, forecast.totalReserveCents);
+}
+
+void BankServiceTest::roundsEachReserveDepositBeforeDailyAggregation()
+{
+    ServiceHarness harness(nullptr,
+                           QDateTime(QDate(2024, 1, 1), QTime(9, 0)));
+    harness.openAndLogin();
+
+    // 每笔 25 分的一年期利息为 0.495 分，应各自先舍入为 0 分；
+    // 若错误地先合并本金再计息，50 分会得到 0.99 分并舍入为 1 分。
+    harness.now = QDateTime(QDate(2025, 1, 3), QTime(9, 0));
+    QVERIFY(harness.service->addFixedDeposit(25, DepositTerm::OneYear).status.success);
+    QVERIFY(harness.service->addFixedDeposit(25, DepositTerm::OneYear).status.success);
+
+    const ReserveForecastResult forecast = harness.service->reserveForecast(
+        QDate(2026, 1, 1));
+    QVERIFY2(forecast.status.success, qPrintable(forecast.status.message));
+    QCOMPARE(forecast.days.size(), 3);
+    QCOMPARE(forecast.days.at(1).date, QDate(2026, 1, 3));
+    QCOMPARE(forecast.days.at(1).depositCount, 2);
+    QCOMPARE(forecast.days.at(1).principalCents, qint64(50));
+    QCOMPARE(forecast.days.at(1).interestCents, qint64(0));
+    QCOMPARE(forecast.days.at(1).reserveCents, qint64(50));
+    QCOMPARE(forecast.totalReserveCents, qint64(50));
 }
 
 void BankServiceTest::rollsBackEveryMutationWhenSavingFails()

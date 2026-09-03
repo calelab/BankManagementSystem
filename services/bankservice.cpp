@@ -3,12 +3,28 @@
 #include "persistence/employeefilemanager.h"
 #include "security/securityutils.h"
 
+#include <QDebug>
 #include <QRegularExpression>
 
+#include <algorithm>
+#include <limits>
 #include <optional>
 #include <utility>
 
 namespace bank {
+namespace {
+
+bool checkedAdd(qint64 left, qint64 right, qint64 *sum)
+{
+    if (!sum || left < 0 || right < 0
+        || left > std::numeric_limits<qint64>::max() - right) {
+        return false;
+    }
+    *sum = left + right;
+    return true;
+}
+
+} // namespace
 
 BankService::BankService(std::shared_ptr<persistence::FileManager> fileManager, Clock clock)
     : fileManager_(std::move(fileManager))
@@ -19,6 +35,7 @@ BankService::BankService(std::shared_ptr<persistence::FileManager> fileManager, 
 ServiceResult BankService::initialize()
 {
     initialized_ = false;
+    auditLogger_.reset();
     currentEmployeeId_.clear();
     currentDepositorAccount_.clear();
     validEmployeeIds_.clear();
@@ -44,6 +61,8 @@ ServiceResult BankService::initialize()
 
     state_ = stateResult.state;
     validEmployeeIds_ = employeeResult.employeeIds;
+    auditLogger_ = std::make_unique<audit::AuditLogger>(fileManager_->dataDirectory(),
+                                                        fileManager_->codec());
     currentEmployeeId_.clear();
     currentDepositorAccount_.clear();
     loginAttempts_.clear();
@@ -185,9 +204,18 @@ OpenAccountResult BankService::openAccount(const QString &name,
         return result;
     }
 
-    result.status = commitCandidate(std::move(candidate), QStringLiteral("开户成功"));
+    result.status = commitCandidate(std::move(candidate),
+                                    QStringLiteral("开户成功"),
+                                    accountNumber);
     if (result.status.success) {
         result.accountNumber = accountNumber;
+        appendAudit(&result.status,
+                    accountNumber,
+                    QStringLiteral("OPEN_ACCOUNT"),
+                    0,
+                    0,
+                    AuditResult::Success,
+                    QStringLiteral("NONE"));
     }
     return result;
 }
@@ -203,7 +231,18 @@ ServiceResult BankService::loginDepositor(const QString &accountNumber,
     static const QRegularExpression accountPattern(QStringLiteral("^[0-9]+$"));
     const QString normalizedAccount = accountNumber.trimmed();
     if (!accountPattern.match(normalizedAccount).hasMatch() || password.isEmpty()) {
-        return failed(ServiceError::InvalidInput, QStringLiteral("请输入有效账号和密码"));
+        ServiceResult result = failed(ServiceError::InvalidInput,
+                                      QStringLiteral("请输入有效账号和密码"));
+        appendAudit(&result,
+                    accountPattern.match(normalizedAccount).hasMatch()
+                        ? normalizedAccount
+                        : QString(),
+                    QStringLiteral("LOGIN"),
+                    0,
+                    0,
+                    AuditResult::Failure,
+                    QStringLiteral("INVALID_INPUT"));
+        return result;
     }
     const QDateTime now = currentDateTime();
     if (!now.isValid()) {
@@ -213,8 +252,16 @@ ServiceResult BankService::loginDepositor(const QString &accountNumber,
     auto attempt = loginAttempts_.find(normalizedAccount);
     if (attempt != loginAttempts_.end() && attempt->lockedUntil.isValid()) {
         if (now < attempt->lockedUntil) {
-            return failed(ServiceError::AccountTemporarilyLocked,
-                          QStringLiteral("登录失败次数过多，请稍后重试"));
+            ServiceResult result = failed(ServiceError::AccountTemporarilyLocked,
+                                          QStringLiteral("登录失败次数过多，请稍后重试"));
+            appendAudit(&result,
+                        normalizedAccount,
+                        QStringLiteral("LOGIN"),
+                        0,
+                        0,
+                        AuditResult::Failure,
+                        QStringLiteral("ACCOUNT_LOCKED"));
+            return result;
         }
         loginAttempts_.erase(attempt);
     }
@@ -222,18 +269,35 @@ ServiceResult BankService::loginDepositor(const QString &accountNumber,
     const Depositor *depositor = state_.findDepositor(normalizedAccount);
     if (!depositor || !security::SecurityUtils::verifyPassword(password, *depositor)) {
         const bool locked = registerLoginFailure(normalizedAccount, now);
-        return locked
-                   ? failed(ServiceError::AccountTemporarilyLocked,
-                            QStringLiteral("登录失败次数过多，账户已临时锁定 60 秒"))
-                   : failed(ServiceError::AuthenticationFailed,
-                            QStringLiteral("账号或密码错误"));
+        ServiceResult result = locked
+                                   ? failed(ServiceError::AccountTemporarilyLocked,
+                                            QStringLiteral("登录失败次数过多，账户已临时锁定 60 秒"))
+                                   : failed(ServiceError::AuthenticationFailed,
+                                            QStringLiteral("账号或密码错误"));
+        appendAudit(&result,
+                    normalizedAccount,
+                    QStringLiteral("LOGIN"),
+                    0,
+                    0,
+                    AuditResult::Failure,
+                    locked ? QStringLiteral("ACCOUNT_LOCKED")
+                           : QStringLiteral("AUTH_FAILED"));
+        return result;
     }
 
     loginAttempts_.remove(normalizedAccount);
     currentDepositorAccount_ = normalizedAccount;
-    return succeeded(depositor->isLost()
-                         ? QStringLiteral("登录成功，当前账户处于挂失状态")
-                         : QStringLiteral("登录成功"));
+    ServiceResult result = succeeded(depositor->isLost()
+                                         ? QStringLiteral("登录成功，当前账户处于挂失状态")
+                                         : QStringLiteral("登录成功"));
+    appendAudit(&result,
+                normalizedAccount,
+                QStringLiteral("LOGIN"),
+                0,
+                0,
+                AuditResult::Success,
+                QStringLiteral("NONE"));
+    return result;
 }
 
 DepositResult BankService::addFixedDeposit(qint64 principalCents, DepositTerm term)
@@ -298,10 +362,19 @@ DepositResult BankService::addFixedDeposit(qint64 principalCents, DepositTerm te
         return result;
     }
 
-    result.status = commitCandidate(std::move(candidate), QStringLiteral("存款成功"));
+    result.status = commitCandidate(std::move(candidate),
+                                    QStringLiteral("存款成功"),
+                                    currentDepositorAccount_);
     if (result.status.success) {
         result.depositId = depositId;
         result.transactionId = transactionId;
+        appendAudit(&result.status,
+                    currentDepositorAccount_,
+                    QStringLiteral("DEPOSIT"),
+                    principalCents,
+                    0,
+                    AuditResult::Success,
+                    QStringLiteral("NONE"));
     }
     return result;
 }
@@ -422,11 +495,22 @@ WithdrawalResult BankService::withdraw(const QString &depositId, qint64 principa
         return result;
     }
 
-    result.status = commitCandidate(std::move(candidate), QStringLiteral("支取成功"));
+    result.status = commitCandidate(std::move(candidate),
+                                    QStringLiteral("支取成功"),
+                                    currentDepositorAccount_);
     if (result.status.success) {
         result.transactionId = transactionId;
         result.remainingPrincipalCents = remainingPrincipal;
         result.calculation = *calculation;
+        appendAudit(&result.status,
+                    currentDepositorAccount_,
+                    calculation->kind == WithdrawalKind::Early
+                        ? QStringLiteral("EARLY_WITHDRAW")
+                        : QStringLiteral("MATURED_WITHDRAW"),
+                    principalCents,
+                    calculation->interestCents,
+                    AuditResult::Success,
+                    QStringLiteral("NONE"));
     }
     return result;
 }
@@ -445,7 +529,19 @@ ServiceResult BankService::updateProfile(const QString &name, const QString &add
         return failed(depositor ? ServiceError::InvalidInput : ServiceError::InternalStateError,
                       depositor ? modelError : QStringLiteral("当前储户状态不存在"));
     }
-    return commitCandidate(std::move(candidate), QStringLiteral("个人资料修改成功"));
+    ServiceResult result = commitCandidate(std::move(candidate),
+                                           QStringLiteral("个人资料修改成功"),
+                                           currentDepositorAccount_);
+    if (result.success) {
+        appendAudit(&result,
+                    currentDepositorAccount_,
+                    QStringLiteral("UPDATE_PROFILE"),
+                    0,
+                    0,
+                    AuditResult::Success,
+                    QStringLiteral("NONE"));
+    }
+    return result;
 }
 
 ServiceResult BankService::changePassword(const QString &currentPassword,
@@ -482,7 +578,19 @@ ServiceResult BankService::changePassword(const QString &currentPassword,
         return failed(ServiceError::InternalStateError,
                       depositor ? modelError : QStringLiteral("当前储户状态不存在"));
     }
-    return commitCandidate(std::move(candidate), QStringLiteral("密码修改成功"));
+    ServiceResult result = commitCandidate(std::move(candidate),
+                                           QStringLiteral("密码修改成功"),
+                                           currentDepositorAccount_);
+    if (result.success) {
+        appendAudit(&result,
+                    currentDepositorAccount_,
+                    QStringLiteral("CHANGE_PASSWORD"),
+                    0,
+                    0,
+                    AuditResult::Success,
+                    QStringLiteral("NONE"));
+    }
+    return result;
 }
 
 ServiceResult BankService::reportLoss()
@@ -510,7 +618,19 @@ ServiceResult BankService::reportLoss()
         return failed(ServiceError::InternalStateError,
                       depositor ? modelError : QStringLiteral("当前储户状态不存在"));
     }
-    return commitCandidate(std::move(candidate), QStringLiteral("账户挂失成功"));
+    ServiceResult result = commitCandidate(std::move(candidate),
+                                           QStringLiteral("账户挂失成功"),
+                                           currentDepositorAccount_);
+    if (result.success) {
+        appendAudit(&result,
+                    currentDepositorAccount_,
+                    QStringLiteral("REPORT_LOSS"),
+                    0,
+                    0,
+                    AuditResult::Success,
+                    QStringLiteral("NONE"));
+    }
+    return result;
 }
 
 ServiceResult BankService::unfreezeAccount(const QString &currentPassword)
@@ -524,10 +644,28 @@ ServiceResult BankService::unfreezeAccount(const QString &currentPassword)
         return failed(ServiceError::InternalStateError, QStringLiteral("当前储户状态不存在"));
     }
     if (!existing->isLost()) {
-        return failed(ServiceError::AccountNotLost, QStringLiteral("账户当前未挂失"));
+        ServiceResult result = failed(ServiceError::AccountNotLost,
+                                      QStringLiteral("账户当前未挂失"));
+        appendAudit(&result,
+                    currentDepositorAccount_,
+                    QStringLiteral("UNFREEZE_ACCOUNT"),
+                    0,
+                    0,
+                    AuditResult::Failure,
+                    QStringLiteral("ACCOUNT_NOT_LOST"));
+        return result;
     }
     if (!security::SecurityUtils::verifyPassword(currentPassword, *existing)) {
-        return failed(ServiceError::AuthenticationFailed, QStringLiteral("当前密码错误，解除挂失失败"));
+        ServiceResult result = failed(ServiceError::AuthenticationFailed,
+                                      QStringLiteral("当前密码错误，解除挂失失败"));
+        appendAudit(&result,
+                    currentDepositorAccount_,
+                    QStringLiteral("UNFREEZE_ACCOUNT"),
+                    0,
+                    0,
+                    AuditResult::Failure,
+                    QStringLiteral("AUTH_FAILED"));
+        return result;
     }
 
     BankState candidate = state_;
@@ -536,17 +674,268 @@ ServiceResult BankService::unfreezeAccount(const QString &currentPassword)
         return failed(ServiceError::InternalStateError, QStringLiteral("当前储户状态不存在"));
     }
     depositor->clearLoss();
-    return commitCandidate(std::move(candidate), QStringLiteral("账户已解除挂失"));
+    ServiceResult result = commitCandidate(std::move(candidate),
+                                           QStringLiteral("账户已解除挂失"),
+                                           currentDepositorAccount_);
+    appendAudit(&result,
+                currentDepositorAccount_,
+                QStringLiteral("UNFREEZE_ACCOUNT"),
+                0,
+                0,
+                result.success ? AuditResult::Success : AuditResult::Failure,
+                result.success ? QStringLiteral("NONE")
+                               : QStringLiteral("PERSISTENCE_ERROR"));
+    return result;
+}
+
+DepositorQueryResult BankService::queryDepositors(
+    const QString &exactAccountNumber,
+    const QString &nameContains,
+    DepositorStatusFilter statusFilter) const
+{
+    DepositorQueryResult result;
+    result.status = requireEmployeeSession();
+    if (!result.status.success) {
+        return result;
+    }
+
+    static const QRegularExpression accountPattern(QStringLiteral("^[0-9]+$"));
+    const QString normalizedAccount = exactAccountNumber.trimmed();
+    const QString normalizedName = nameContains.trimmed();
+    if (!normalizedAccount.isEmpty()
+        && !accountPattern.match(normalizedAccount).hasMatch()) {
+        result.status = failed(ServiceError::InvalidInput,
+                               QStringLiteral("查询账号格式无效"));
+        return result;
+    }
+    if (statusFilter != DepositorStatusFilter::All
+        && statusFilter != DepositorStatusFilter::Normal
+        && statusFilter != DepositorStatusFilter::Lost) {
+        result.status = failed(ServiceError::InvalidInput,
+                               QStringLiteral("账户状态筛选条件无效"));
+        return result;
+    }
+
+    for (const Depositor &depositor : state_.depositors()) {
+        if (!normalizedAccount.isEmpty()
+            && depositor.accountNumber() != normalizedAccount) {
+            continue;
+        }
+        if (!normalizedName.isEmpty()
+            && !depositor.name().contains(normalizedName, Qt::CaseInsensitive)) {
+            continue;
+        }
+        if ((statusFilter == DepositorStatusFilter::Normal && depositor.isLost())
+            || (statusFilter == DepositorStatusFilter::Lost && !depositor.isLost())) {
+            continue;
+        }
+
+        qint64 remainingPrincipal = 0;
+        for (const FixedDeposit &deposit : depositor.deposits()) {
+            if (!checkedAdd(remainingPrincipal,
+                            deposit.remainingPrincipalCents(),
+                            &remainingPrincipal)) {
+                result.depositors.clear();
+                result.status = failed(ServiceError::InternalStateError,
+                                       QStringLiteral("储户剩余本金合计超出可表示范围"));
+                return result;
+            }
+        }
+
+        if (depositor.deposits().size() > std::numeric_limits<int>::max()) {
+            result.depositors.clear();
+            result.status = failed(ServiceError::InternalStateError,
+                                   QStringLiteral("储户存款笔数超出可表示范围"));
+            return result;
+        }
+
+        DepositorSummary summary;
+        summary.accountNumber = depositor.accountNumber();
+        summary.name = depositor.name();
+        summary.address = depositor.address();
+        summary.lost = depositor.isLost();
+        summary.lostDate = depositor.lostDate();
+        summary.openingEmployeeId = depositor.openingEmployeeId();
+        summary.depositCount = static_cast<int>(depositor.deposits().size());
+        summary.remainingPrincipalCents = remainingPrincipal;
+        result.depositors.append(std::move(summary));
+    }
+
+    std::sort(result.depositors.begin(),
+              result.depositors.end(),
+              [](const DepositorSummary &left, const DepositorSummary &right) {
+                  return left.accountNumber < right.accountNumber;
+              });
+    result.status = succeeded(QStringLiteral("储户查询完成"));
+    return result;
+}
+
+AccountDetailsResult BankService::currentAccountDetails() const
+{
+    AccountDetailsResult result;
+    result.status = requireDepositorSession(true);
+    if (!result.status.success) {
+        return result;
+    }
+    const Depositor *depositor = currentDepositor();
+    if (!depositor) {
+        result.status = failed(ServiceError::InternalStateError,
+                               QStringLiteral("当前储户状态不存在"));
+        return result;
+    }
+
+    AccountDetails details;
+    details.accountNumber = depositor->accountNumber();
+    details.name = depositor->name();
+    details.address = depositor->address();
+    details.lost = depositor->isLost();
+    details.lostDate = depositor->lostDate();
+    details.openingEmployeeId = depositor->openingEmployeeId();
+    details.createdAt = depositor->createdAt();
+    details.deposits = depositor->deposits();
+    details.transactions = depositor->transactions();
+    result.details = std::move(details);
+    result.status = succeeded(QStringLiteral("账户明细查询完成"));
+    return result;
+}
+
+ReserveForecastResult BankService::reserveForecast(const QDate &baseDate) const
+{
+    ReserveForecastResult result;
+    result.status = requireEmployeeSession();
+    if (!result.status.success) {
+        return result;
+    }
+
+    const QDate effectiveBaseDate = baseDate.isValid()
+                                        ? baseDate
+                                        : currentDateTime().date();
+    if (!effectiveBaseDate.isValid()) {
+        result.status = failed(ServiceError::InternalStateError,
+                               QStringLiteral("三日备款基准日期无效"));
+        return result;
+    }
+    for (int offset = 1; offset <= 3; ++offset) {
+        DailyReserveForecast day;
+        day.date = effectiveBaseDate.addDays(offset);
+        if (!day.date.isValid()) {
+            result.days.clear();
+            result.status = failed(ServiceError::InternalStateError,
+                                   QStringLiteral("三日备款日期超出可表示范围"));
+            return result;
+        }
+        result.days.append(day);
+    }
+
+    for (const Depositor &depositor : state_.depositors()) {
+        for (const FixedDeposit &deposit : depositor.deposits()) {
+            if (deposit.remainingPrincipalCents() <= 0) {
+                continue;
+            }
+            const qint64 dayIndex = effectiveBaseDate.daysTo(deposit.maturityDate()) - 1;
+            if (dayIndex < 0 || dayIndex >= result.days.size()) {
+                continue;
+            }
+
+            QString calculationError;
+            const auto interest = InterestCalculator::maturedInterest(
+                deposit.remainingPrincipalCents(),
+                deposit.annualRateBasisPoints(),
+                termYears(deposit.term()),
+                &calculationError);
+            if (!interest) {
+                result.days.clear();
+                result.status = failed(
+                    ServiceError::InternalStateError,
+                    QStringLiteral("三日备款利息计算失败：%1").arg(calculationError));
+                return result;
+            }
+
+            DailyReserveForecast &day = result.days[static_cast<qsizetype>(dayIndex)];
+            qint64 principalSum = 0;
+            qint64 interestSum = 0;
+            qint64 reserveSum = 0;
+            if (day.depositCount == std::numeric_limits<int>::max()
+                || !checkedAdd(day.principalCents,
+                               deposit.remainingPrincipalCents(),
+                               &principalSum)
+                || !checkedAdd(day.interestCents, *interest, &interestSum)
+                || !checkedAdd(principalSum, interestSum, &reserveSum)) {
+                result.days.clear();
+                result.status = failed(ServiceError::InternalStateError,
+                                       QStringLiteral("三日备款金额合计超出可表示范围"));
+                return result;
+            }
+            ++day.depositCount;
+            day.principalCents = principalSum;
+            day.interestCents = interestSum;
+            day.reserveCents = reserveSum;
+        }
+    }
+
+    for (const DailyReserveForecast &day : result.days) {
+        if (!checkedAdd(result.totalReserveCents,
+                        day.reserveCents,
+                        &result.totalReserveCents)) {
+            result.days.clear();
+            result.totalReserveCents = 0;
+            result.status = failed(ServiceError::InternalStateError,
+                                   QStringLiteral("三日备款总计超出可表示范围"));
+            return result;
+        }
+    }
+    result.status = succeeded(QStringLiteral("三日备款计算完成"));
+    return result;
+}
+
+AuditQueryResult BankService::currentEmployeeAudit(const QString &actionFilter) const
+{
+    AuditQueryResult result;
+    result.status = requireEmployeeSession();
+    if (!result.status.success) {
+        return result;
+    }
+    if (!auditLogger_) {
+        result.status = failed(ServiceError::AuditLoadFailure,
+                               QStringLiteral("审计日志服务不可用"));
+        return result;
+    }
+
+    static const QRegularExpression actionPattern(QStringLiteral("^[A-Z][A-Z0-9_]*$"));
+    const QString normalizedAction = actionFilter.trimmed();
+    if (!normalizedAction.isEmpty()
+        && !actionPattern.match(normalizedAction).hasMatch()) {
+        result.status = failed(ServiceError::InvalidInput,
+                               QStringLiteral("审计动作筛选码无效"));
+        return result;
+    }
+
+    const audit::AuditLoadResult loadResult = auditLogger_->loadForEmployee(currentEmployeeId_);
+    if (!loadResult.success) {
+        qWarning().noquote() << QStringLiteral("审计日志读取失败：%1")
+                                    .arg(loadResult.errorMessage);
+        result.status = failed(ServiceError::AuditLoadFailure,
+                               QStringLiteral("加载审计日志失败：%1")
+                                   .arg(loadResult.errorMessage));
+        return result;
+    }
+    for (const AuditRecord &record : loadResult.records) {
+        if (normalizedAction.isEmpty() || record.action() == normalizedAction) {
+            result.records.append(record);
+        }
+    }
+    result.status = succeeded(QStringLiteral("审计日志查询完成"));
+    return result;
 }
 
 ServiceResult BankService::succeeded(const QString &message)
 {
-    return {true, ServiceError::None, message};
+    return {true, ServiceError::None, message, {}};
 }
 
 ServiceResult BankService::failed(ServiceError error, const QString &message)
 {
-    return {false, error, message};
+    return {false, error, message, {}};
 }
 
 ServiceResult BankService::requireEmployeeSession() const
@@ -584,15 +973,70 @@ ServiceResult BankService::requireDepositorSession(bool allowLost) const
 }
 
 ServiceResult BankService::commitCandidate(BankState candidate,
-                                           const QString &successMessage)
+                                           const QString &successMessage,
+                                           const QString &auditAccountNumber)
 {
     const persistence::FileSaveResult saveResult = fileManager_->save(candidate);
     if (!saveResult.success) {
-        return failed(ServiceError::PersistenceFailure,
-                      QStringLiteral("保存失败，操作未生效：%1").arg(saveResult.errorMessage));
+        ServiceResult result = failed(
+            ServiceError::PersistenceFailure,
+            QStringLiteral("保存失败，操作未生效：%1").arg(saveResult.errorMessage));
+        appendAudit(&result,
+                    auditAccountNumber,
+                    QStringLiteral("CORE_DATA_SAVE"),
+                    0,
+                    0,
+                    AuditResult::Warning,
+                    QStringLiteral("PERSISTENCE_ERROR"));
+        return result;
     }
     state_ = std::move(candidate);
     return succeeded(successMessage);
+}
+
+void BankService::appendAudit(ServiceResult *status,
+                              const QString &accountNumber,
+                              const QString &action,
+                              qint64 principalAmountCents,
+                              qint64 interestAmountCents,
+                              AuditResult result,
+                              const QString &reasonCode) const
+{
+    if (!status) {
+        return;
+    }
+
+    QString errorMessage;
+    const QDateTime now = currentDateTime();
+    if (!auditLogger_) {
+        errorMessage = QStringLiteral("审计日志服务不可用");
+    } else if (currentEmployeeId_.isEmpty()) {
+        errorMessage = QStringLiteral("当前营业员会话不存在");
+    } else if (!now.isValid()) {
+        errorMessage = QStringLiteral("审计时间无效");
+    } else {
+        const AuditRecord record(now,
+                                 currentEmployeeId_,
+                                 accountNumber,
+                                 action,
+                                 principalAmountCents,
+                                 interestAmountCents,
+                                 result,
+                                 reasonCode);
+        const audit::AuditAppendResult appendResult = auditLogger_->append(record);
+        if (appendResult.success) {
+            return;
+        }
+        errorMessage = appendResult.errorMessage;
+    }
+
+    status->warningMessage = status->success
+                                 ? QStringLiteral("业务已完成，审计日志保存失败：%1")
+                                       .arg(errorMessage)
+                                 : QStringLiteral("审计日志保存失败：%1").arg(errorMessage);
+    // 运行日志只记录动作和非敏感错误，不输出密码、哈希、Salt 或主密钥。
+    qWarning().noquote() << QStringLiteral("审计日志写入失败 [%1]：%2")
+                                .arg(action, errorMessage);
 }
 
 QDateTime BankService::currentDateTime() const
