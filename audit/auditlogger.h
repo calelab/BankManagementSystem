@@ -22,7 +22,7 @@ struct AuditAppendResult {
     QString errorMessage;
 };
 
-// AuditLogger 按营业员保存独立日志，并通过共享编码器为后续 AES 模式保留边界。
+// AuditLogger 按营业员保存独立日志，并与核心数据共享当前构建选定的编码器。
 class AuditLogger
 {
 public:

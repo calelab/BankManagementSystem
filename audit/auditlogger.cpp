@@ -168,7 +168,7 @@ AuditLogger::AuditLogger(QString dataDirectory,
     , codec_(std::move(codec))
 {
     if (!codec_) {
-        codec_ = std::make_shared<persistence::PlainJsonCodec>();
+        codec_ = persistence::createDefaultDataCodec(dataDirectory_);
     }
 }
 
@@ -187,6 +187,9 @@ AuditLoadResult AuditLogger::loadForEmployee(const QString &employeeId) const
     const QString path = filePathForEmployee(employeeId);
     if (path.isEmpty()) {
         result.errorMessage = QStringLiteral("营业员工号格式无效");
+        return result;
+    }
+    if (!codec_->initialize(&result.errorMessage)) {
         return result;
     }
     if (!QFileInfo::exists(path)) {

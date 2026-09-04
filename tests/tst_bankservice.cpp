@@ -167,6 +167,7 @@ private slots:
     void initializesEmployeesAndEnforcesSessionOrder();
     void validatesExistingEmployeeFile();
     void reportsDamagedCoreDataAtInitialization();
+    void refusesInitializationWhenEncryptedKeyIsMissing();
     void opensAccountAndPersistsSecureCredentials();
     void locksRepeatedPasswordFailuresForSixtySeconds();
     void createsIndependentFixedDeposits();
@@ -242,13 +243,46 @@ void BankServiceTest::reportsDamagedCoreDataAtInitialization()
     QVERIFY(temporaryDirectory.isValid());
     writeFile(QDir(temporaryDirectory.path()).filePath(QStringLiteral("bank_data.json")),
               QByteArray("{broken-json"));
-    BankService service(std::make_shared<FileManager>(temporaryDirectory.path()));
+    BankService service(std::make_shared<FileManager>(
+        temporaryDirectory.path(), std::make_shared<PlainJsonCodec>()));
 
     const ServiceResult result = service.initialize();
     QCOMPARE(result.error, ServiceError::DataLoadFailure);
     QVERIFY(!service.isInitialized());
     QCOMPARE(readFile(QDir(temporaryDirectory.path()).filePath(QStringLiteral("bank_data.json"))),
              QByteArray("{broken-json"));
+}
+
+void BankServiceTest::refusesInitializationWhenEncryptedKeyIsMissing()
+{
+#ifndef BANK_HAS_OPENSSL
+    QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
+#else
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    const auto writerManager = std::make_shared<FileManager>(temporaryDirectory.path());
+    BankService writer(writerManager, [] {
+        return QDateTime(QDate(2026, 1, 1), QTime(9, 0));
+    });
+    QVERIFY(writer.initialize().success);
+    QVERIFY(writer.enterEmployeeSession(QStringLiteral("E03")).success);
+    const OpenAccountResult opened = writer.openAccount(
+        QStringLiteral("加密测试"), QStringLiteral("测试地址"),
+        QStringLiteral("SafePass123"), QStringLiteral("SafePass123"));
+    QVERIFY(opened.status.success);
+    const QByteArray encryptedData = readFile(writerManager->dataFilePath());
+
+    const QString keyPath = security::SecurityUtils::masterKeyPath(
+        temporaryDirectory.path());
+    QVERIFY(QFile::remove(keyPath));
+    BankService restarted(std::make_shared<FileManager>(temporaryDirectory.path()));
+    const ServiceResult result = restarted.initialize();
+    QCOMPARE(result.error, ServiceError::DataLoadFailure);
+    QVERIFY(result.message.contains(QStringLiteral("主密钥缺失")));
+    QVERIFY(!restarted.isInitialized());
+    QVERIFY(!QFileInfo::exists(keyPath));
+    QCOMPARE(readFile(writerManager->dataFilePath()), encryptedData);
+#endif
 }
 
 void BankServiceTest::opensAccountAndPersistsSecureCredentials()

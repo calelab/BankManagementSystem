@@ -28,6 +28,7 @@
 #include <QTest>
 #include <QTimer>
 
+#include <array>
 #include <memory>
 
 using namespace bank;
@@ -56,6 +57,21 @@ void showAndProcess(MainWindow *window)
 {
     window->show();
     QApplication::processEvents();
+}
+
+bool hasReadableDepositColumns(QTableView *tableView)
+{
+    constexpr std::array<int, 8> minimumWidths{120, 115, 115, 100, 90, 115, 115, 85};
+    if (!tableView
+        || tableView->model()->columnCount() != static_cast<int>(minimumWidths.size())) {
+        return false;
+    }
+    for (int column = 0; column < static_cast<int>(minimumWidths.size()); ++column) {
+        if (tableView->columnWidth(column) < minimumWidths.at(column)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -118,6 +134,15 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
              QLineEdit::Password);
     QVERIFY(!requiredChild<QCheckBox>(&window, "showClosedDepositsCheckBox")->isChecked());
     QVERIFY(!requiredChild<QAction>(&window, "actionLogoutDepositor")->isEnabled());
+
+    auto *depositsTable = requiredChild<QTableView>(&window, "depositsTableView");
+    auto *depositsHeader = depositsTable->horizontalHeader();
+    QVERIFY(!depositsHeader->stretchLastSection());
+    QCOMPARE(depositsHeader->sectionResizeMode(0), QHeaderView::Interactive);
+    QCOMPARE(depositsHeader->sectionResizeMode(7), QHeaderView::Interactive);
+    QCOMPARE(depositsTable->horizontalScrollMode(), QAbstractItemView::ScrollPerPixel);
+    QVERIFY(!depositsTable->wordWrap());
+    QVERIFY(hasReadableDepositColumns(depositsTable));
 
     auto *transactionsTable = requiredChild<QTableView>(&window, "transactionsTableView");
     QCOMPARE(transactionsTable->model()->headerData(3, Qt::Horizontal).toString(),
@@ -332,6 +357,11 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         requiredChild<QPushButton>(&window, "newDepositButton")->click();
         QVERIFY(depositDialogHandled);
 
+        auto *deposits = requiredChild<QTableView>(&window, "depositsTableView");
+        QCOMPARE(deposits->model()->rowCount(), 1);
+        QVERIFY(hasReadableDepositColumns(deposits));
+        QVERIFY(!deposits->horizontalHeader()->stretchLastSection());
+
         bool secondDepositDialogHandled = false;
         QTimer::singleShot(0, &window, [&secondDepositDialogHandled] {
             QWidget *dialog = QApplication::activeModalWidget();
@@ -348,9 +378,9 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         requiredChild<QPushButton>(&window, "newDepositButton")->click();
         QVERIFY(secondDepositDialogHandled);
 
-        auto *deposits = requiredChild<QTableView>(&window, "depositsTableView");
         auto *transactions = requiredChild<QTableView>(&window, "transactionsTableView");
         QCOMPARE(deposits->model()->rowCount(), 2);
+        QVERIFY(hasReadableDepositColumns(deposits));
         QCOMPARE(transactions->model()->rowCount(), 2);
         QCOMPARE(deposits->model()->index(0, 2).data().toString(),
                  QStringLiteral("¥1,000.00"));

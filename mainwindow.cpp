@@ -147,6 +147,42 @@ void prepareTable(QTableView *tableView)
     tableView->verticalHeader()->setVisible(false);
 }
 
+void resizeDepositTableColumns(QTableView *tableView)
+{
+    struct WidthRange {
+        int minimum;
+        int maximum;
+    };
+    constexpr std::array<WidthRange, 8> widthRanges{
+        WidthRange{120, 150},
+        WidthRange{115, 145},
+        WidthRange{115, 145},
+        WidthRange{100, 140},
+        WidthRange{90, 110},
+        WidthRange{115, 130},
+        WidthRange{115, 130},
+        WidthRange{85, 110}};
+
+    tableView->resizeColumnsToContents();
+    for (int column = 0; column < static_cast<int>(widthRanges.size()); ++column) {
+        const WidthRange range = widthRanges.at(column);
+        tableView->setColumnWidth(
+            column,
+            std::clamp(tableView->columnWidth(column), range.minimum, range.maximum));
+    }
+}
+
+void prepareDepositTable(QTableView *tableView)
+{
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setStretchLastSection(false);
+    header->setSectionResizeMode(QHeaderView::Interactive);
+    tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    tableView->setWordWrap(false);
+    tableView->verticalHeader()->setVisible(false);
+    resizeDepositTableColumns(tableView);
+}
+
 void prepareTransactionTable(QTableView *tableView)
 {
     prepareTable(tableView);
@@ -448,7 +484,7 @@ void MainWindow::setupTableModels()
             &QItemSelectionModel::currentRowChanged,
             this,
             [this] { updateAccountActionState(); });
-    prepareTable(ui->depositsTableView);
+    prepareDepositTable(ui->depositsTableView);
     prepareTransactionTable(ui->transactionsTableView);
     prepareDepositorTable(ui->allDepositorsTableView);
     prepareTable(ui->reserveForecastTableView);
@@ -675,6 +711,7 @@ void MainWindow::refreshAccountCenter()
         row.first()->setData(deposit.remainingPrincipalCents(), Qt::UserRole + 1);
         depositsModel_->appendRow(row);
     }
+    resizeDepositTableColumns(ui->depositsTableView);
 
     for (const bank::Transaction &transaction : details.transactions) {
         transactionsModel_->appendRow(

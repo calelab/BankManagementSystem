@@ -1,5 +1,6 @@
 #include "audit/auditlogger.h"
 #include "persistence/datacodec.h"
+#include "security/securityutils.h"
 
 #include <QDir>
 #include <QFile>
@@ -33,6 +34,11 @@ void writeFile(const QString &path, const QByteArray &contents)
     if (file.write(contents) != contents.size()) {
         qFatal("审计测试文件写入不完整");
     }
+}
+
+std::shared_ptr<const DataCodec> plainCodec()
+{
+    return std::make_shared<PlainJsonCodec>();
 }
 
 AuditRecord makeRecord(const QString &employeeId,
@@ -120,6 +126,7 @@ private slots:
     void rejectsDamagedAndUnsupportedSchema();
     void rejectsMixedEmployeeLogWithoutOverwrite();
     void preservesExistingLogWhenEncodingFails();
+    void encryptsAuditAndKeepsCompatibilityLogSeparate();
 };
 
 void AuditLoggerTest::validatesAuditRecordBoundary()
@@ -149,7 +156,7 @@ void AuditLoggerTest::createsOnFirstEventAndRoundTrips()
 {
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
-    AuditLogger logger(temporaryDirectory.path());
+    AuditLogger logger(temporaryDirectory.path(), plainCodec());
     const QString path = logger.filePathForEmployee(QStringLiteral("E03"));
 
     const AuditLoadResult empty = logger.loadForEmployee(QStringLiteral("E03"));
@@ -185,7 +192,7 @@ void AuditLoggerTest::isolatesEmployeeFiles()
 {
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
-    AuditLogger logger(temporaryDirectory.path());
+    AuditLogger logger(temporaryDirectory.path(), plainCodec());
     QVERIFY(logger.append(makeRecord(QStringLiteral("E01"),
                                     QStringLiteral("OPEN_ACCOUNT")))
                 .success);
@@ -209,7 +216,7 @@ void AuditLoggerTest::rejectsDamagedAndUnsupportedSchema()
 {
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
-    AuditLogger logger(temporaryDirectory.path());
+    AuditLogger logger(temporaryDirectory.path(), plainCodec());
     QVERIFY(QDir().mkpath(QDir(temporaryDirectory.path()).filePath(QStringLiteral("audit"))));
     const QString path = logger.filePathForEmployee(QStringLiteral("E06"));
 
@@ -233,7 +240,7 @@ void AuditLoggerTest::rejectsMixedEmployeeLogWithoutOverwrite()
 {
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
-    AuditLogger logger(temporaryDirectory.path());
+    AuditLogger logger(temporaryDirectory.path(), plainCodec());
     QVERIFY(logger.append(makeRecord(QStringLiteral("E01"))).success);
     const QString path = logger.filePathForEmployee(QStringLiteral("E01"));
     QByteArray mixedContents = readFile(path);
@@ -263,6 +270,65 @@ void AuditLoggerTest::preservesExistingLogWhenEncodingFails()
         makeRecord(QStringLiteral("E05"), QStringLiteral("REPORT_LOSS")));
     QVERIFY(!result.success);
     QCOMPARE(readFile(path), original);
+}
+
+void AuditLoggerTest::encryptsAuditAndKeepsCompatibilityLogSeparate()
+{
+#ifndef BANK_HAS_OPENSSL
+    QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
+#else
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    AuditLogger encryptedLogger(temporaryDirectory.path());
+    const AuditRecord first = makeRecord(QStringLiteral("E03"));
+    QVERIFY(encryptedLogger.append(first).success);
+    const QString encryptedPath = encryptedLogger.filePathForEmployee(QStringLiteral("E03"));
+    QVERIFY(encryptedPath.endsWith(QStringLiteral(".audit.enc")));
+    const QByteArray encryptedBeforeCompatibility = readFile(encryptedPath);
+    QVERIFY(!encryptedBeforeCompatibility.contains("DEPOSIT"));
+    QVERIFY(!encryptedBeforeCompatibility.contains("100001"));
+
+    const AuditLoadResult restored = AuditLogger(temporaryDirectory.path())
+                                         .loadForEmployee(QStringLiteral("E03"));
+    QVERIFY2(restored.success, qPrintable(restored.errorMessage));
+    QCOMPARE(restored.records.size(), 1);
+    QCOMPARE(restored.records.first().action(), QStringLiteral("DEPOSIT"));
+
+    AuditLogger compatibilityLogger(temporaryDirectory.path(), plainCodec());
+    QVERIFY(compatibilityLogger.append(
+                makeRecord(QStringLiteral("E03"), QStringLiteral("OPEN_ACCOUNT")))
+                .success);
+    const QString compatibilityPath = compatibilityLogger.filePathForEmployee(
+        QStringLiteral("E03"));
+    QVERIFY(compatibilityPath.endsWith(QStringLiteral(".audit.json")));
+    QVERIFY(compatibilityPath != encryptedPath);
+    QCOMPARE(readFile(encryptedPath), encryptedBeforeCompatibility);
+
+    const QByteArray compatibilityBeforeEncryptedAppend = readFile(compatibilityPath);
+    QVERIFY(encryptedLogger.append(
+                makeRecord(QStringLiteral("E03"), QStringLiteral("REPORT_LOSS")))
+                .success);
+    QCOMPARE(readFile(compatibilityPath), compatibilityBeforeEncryptedAppend);
+
+    QByteArray tampered = readFile(encryptedPath);
+    tampered[tampered.size() - 1] = static_cast<char>(tampered.back() ^ 0x01);
+    writeFile(encryptedPath, tampered);
+    const AuditLoadResult damaged = AuditLogger(temporaryDirectory.path())
+                                        .loadForEmployee(QStringLiteral("E03"));
+    QVERIFY(!damaged.success);
+    QVERIFY(damaged.errorMessage.contains(QStringLiteral("认证失败")));
+    QVERIFY(!AuditLogger(temporaryDirectory.path()).append(first).success);
+    QCOMPARE(readFile(encryptedPath), tampered);
+
+    const QString keyPath = security::SecurityUtils::masterKeyPath(
+        temporaryDirectory.path());
+    QVERIFY(QFile::remove(keyPath));
+    const AuditLoadResult missingKey = AuditLogger(temporaryDirectory.path())
+                                           .loadForEmployee(QStringLiteral("E03"));
+    QVERIFY(!missingKey.success);
+    QVERIFY(missingKey.errorMessage.contains(QStringLiteral("主密钥缺失")));
+    QVERIFY(!QFileInfo::exists(keyPath));
+#endif
 }
 
 int main(int argc, char *argv[])

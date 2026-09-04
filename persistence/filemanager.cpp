@@ -17,7 +17,7 @@ FileManager::FileManager(QString dataDirectory, std::shared_ptr<const DataCodec>
     , codec_(std::move(codec))
 {
     if (!codec_) {
-        codec_ = std::make_shared<PlainJsonCodec>();
+        codec_ = createDefaultDataCodec(dataDirectory_);
     }
 }
 
@@ -50,6 +50,9 @@ FileLoadResult FileManager::load() const
 {
     FileLoadResult result;
     if (!ensureDataDirectory(&result.errorMessage)) {
+        return result;
+    }
+    if (!codec_->initialize(&result.errorMessage)) {
         return result;
     }
 
@@ -86,6 +89,10 @@ FileLoadResult FileManager::load() const
 FileSaveResult FileManager::save(const BankState &state) const
 {
     FileSaveResult result;
+    if (!ensureDataDirectory(&result.errorMessage)
+        || !codec_->initialize(&result.errorMessage)) {
+        return result;
+    }
     QByteArray plainJson;
     if (!BankStateJsonSerializer::serialize(state, &plainJson, &result.errorMessage)) {
         return result;
@@ -95,10 +102,6 @@ FileSaveResult FileManager::save(const BankState &state) const
     if (!codec_->encode(plainJson, &encodedData, &result.errorMessage)) {
         return result;
     }
-    if (!ensureDataDirectory(&result.errorMessage)) {
-        return result;
-    }
-
     QSaveFile file(dataFilePath());
     // 禁止退化为直接覆盖，临时文件或原子替换失败时必须保留旧文件。
     file.setDirectWriteFallback(false);
