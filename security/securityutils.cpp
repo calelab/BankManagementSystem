@@ -1,3 +1,4 @@
+// 安全工具实现：只调用 Qt 与 OpenSSL 的成熟密码能力，不自行实现算法。
 #include "security/securityutils.h"
 
 #include "models/depositor.h"
@@ -12,6 +13,7 @@
 
 #include <climits>
 #include <memory>
+#include <utility>
 
 #ifdef BANK_HAS_OPENSSL
 #include <openssl/evp.h>
@@ -51,6 +53,7 @@ std::optional<PasswordCredentials> SecurityUtils::createPasswordCredentials(
         return std::nullopt;
     }
 
+    // 每个密码生成独立随机 Salt，再以较高迭代次数减慢离线猜测。
     PasswordCredentials credentials;
     credentials.salt = randomBytes(PasswordSaltSize);
     credentials.iterations = PasswordKdfIterations;
@@ -84,6 +87,7 @@ bool SecurityUtils::verifyPassword(const QString &password, const Depositor &dep
         || depositor.passwordKdfIterations() != PasswordKdfIterations) {
         return false;
     }
+    // 以持久化参数重新派生候选值，并用恒定时间比较减少时序侧信道。
     const QByteArray candidate = QPasswordDigestor::deriveKeyPbkdf2(
         QCryptographicHash::Sha256,
         password.toUtf8(),
@@ -114,6 +118,7 @@ bool SecurityUtils::encryptAes256Gcm(const QByteArray &plainText,
         return fail(errorMessage, QStringLiteral("AES-GCM 加密参数无效"));
     }
 
+    // GCM 要求同一密钥下 Nonce 不复用，因此每次保存都重新随机生成 12 字节。
     AesGcmPayload candidate;
     candidate.nonce = randomBytes(AesNonceSize);
     if (candidate.nonce.size() != AesNonceSize) {
@@ -132,6 +137,7 @@ bool SecurityUtils::encryptAes256Gcm(const QByteArray &plainText,
         return fail(errorMessage, QStringLiteral("AES-256-GCM 加密初始化失败"));
     }
 
+    // 文件头作为 AAD：内容不加密，但任何改动都会导致最终认证失败。
     int written = 0;
     if (!additionalData.isEmpty()
         && EVP_EncryptUpdate(
@@ -219,6 +225,7 @@ bool SecurityUtils::decryptAes256Gcm(const AesGcmPayload &payload,
         return fail(errorMessage, QStringLiteral("AES-GCM 文件头认证失败"));
     }
 
+    // 先写入局部候选缓冲区，只有 Tag 认证成功才把明文交给调用者。
     QByteArray candidate(payload.ciphertext.size() + EVP_MAX_BLOCK_LENGTH, '\0');
     written = 0;
     int plainTextSize = 0;
@@ -293,6 +300,7 @@ bool SecurityUtils::loadOrCreateMasterKey(const QString &dataDirectory,
         return true;
     }
 
+    // 已存在密文却缺少 key 时必须停止，生成新 key 只会让旧数据永久不可读。
     if (encryptedArtifactsExist) {
         return fail(errorMessage,
                     QStringLiteral("主密钥缺失，无法解密现有加密数据；不会生成替代密钥"));
@@ -310,6 +318,7 @@ bool SecurityUtils::loadOrCreateMasterKey(const QString &dataDirectory,
         return fail(errorMessage, QStringLiteral("无法生成 AES 主密钥"));
     }
 
+    // 主密钥也使用原子写入，并尽力限制为仅当前用户可读写。
     QSaveFile file(path);
     file.setDirectWriteFallback(false);
     if (!file.open(QIODevice::WriteOnly)) {
@@ -363,6 +372,7 @@ bool SecurityUtils::constantTimeEquals(const QByteArray &left, const QByteArray 
         return false;
     }
 
+    // 遍历全部字节并累计差异，避免在首个不匹配处提前退出。
     unsigned char difference = 0;
     for (qsizetype index = 0; index < left.size(); ++index) {
         difference |= static_cast<unsigned char>(left.at(index))

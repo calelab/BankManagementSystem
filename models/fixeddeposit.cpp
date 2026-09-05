@@ -1,3 +1,4 @@
+// 定期存款实现：维护剩余本金，并由日期和余额推导当前状态。
 #include "models/fixeddeposit.h"
 
 #include <QRegularExpression>
@@ -85,6 +86,7 @@ const QDateTime &FixedDeposit::createdAt() const
 
 bool FixedDeposit::setRemainingPrincipalCents(qint64 cents)
 {
+    // 原始本金保留开户事实，部分支取只递减剩余本金。
     if (cents < 0 || cents > originalPrincipalCents_) {
         return false;
     }
@@ -94,6 +96,7 @@ bool FixedDeposit::setRemainingPrincipalCents(qint64 cents)
 
 DepositStatus FixedDeposit::statusOn(const QDate &referenceDate) const
 {
+    // 本金为零即永久结清；否则再依据到期日区分未到期与已到期。
     if (remainingPrincipalCents_ == 0) {
         return DepositStatus::Closed;
     }
@@ -102,6 +105,7 @@ DepositStatus FixedDeposit::statusOn(const QDate &referenceDate) const
 
 bool FixedDeposit::isValid(QString *errorMessage) const
 {
+    // 重新计算利率和到期日，可发现持久化文件中被篡改或互相矛盾的字段。
     static const QRegularExpression depositIdPattern(QStringLiteral("^FD[0-9]{6,}$"));
     static const QRegularExpression employeeIdPattern(QStringLiteral("^E(?:0[1-9]|[1-9][0-9])$"));
 
@@ -141,6 +145,7 @@ bool FixedDeposit::isValid(QString *errorMessage) const
 
 QDate FixedDeposit::calculateMaturityDate(const QDate &startDate, DepositTerm term)
 {
+    // 使用日历年而非固定天数，确保闰年附近的到期日符合业务直觉。
     const int years = termYears(term);
     return startDate.isValid() && years > 0 ? startDate.addYears(years) : QDate();
 }

@@ -1,3 +1,4 @@
+// 营业员文件管理实现：首次生成演示工号，之后只读取并验证既有清单。
 #include "persistence/employeefilemanager.h"
 
 #include <QDir>
@@ -27,6 +28,7 @@ EmployeeLoadResult EmployeeFileManager::loadOrCreate() const
         return result;
     }
 
+    // 只在文件完全不存在时创建 E01-E10；损坏的既有文件必须显式报错。
     if (!QFileInfo::exists(filePath())) {
         if (!createInitialFile(&result.errorMessage)) {
             return result;
@@ -106,6 +108,7 @@ bool EmployeeFileManager::createInitialFile(QString *errorMessage) const
         contents += QStringLiteral("E%1\n").arg(number, 2, 10, QLatin1Char('0')).toUtf8();
     }
 
+    // 初始工号文件也使用原子替换，避免首次启动中断留下半个文件。
     QSaveFile file(filePath());
     file.setDirectWriteFallback(false);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {

@@ -1,3 +1,4 @@
+// 审计记录实现：校验日志字段格式，防止无效记录进入审计文件。
 #include "models/auditrecord.h"
 
 #include <QRegularExpression>
@@ -78,6 +79,7 @@ const QString &AuditRecord::reasonCode() const
 
 bool AuditRecord::isValid(QString *errorMessage) const
 {
+    // 稳定机器码和字段边界使日志可筛选，也能在加载时拒绝被污染的记录。
     static const QRegularExpression employeePattern(QStringLiteral("^E(?:0[1-9]|[1-9][0-9])$"));
     static const QRegularExpression accountPattern(QStringLiteral("^[0-9]+$"));
     static const QRegularExpression codePattern(QStringLiteral("^[A-Z][A-Z0-9_]*$"));
@@ -104,7 +106,6 @@ bool AuditRecord::isValid(QString *errorMessage) const
     if (!codePattern.match(reasonCode_).hasMatch()) {
         return failValidation(errorMessage, QStringLiteral("审计原因码无效"));
     }
-
     if (errorMessage) {
         errorMessage->clear();
     }

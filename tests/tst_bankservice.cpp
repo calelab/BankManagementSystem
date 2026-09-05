@@ -1,3 +1,4 @@
+// 业务服务测试：在临时目录中验证完整业务流程、失败回滚、查询和备款统计。
 #include "persistence/bankstatejsonserializer.h"
 #include "persistence/datacodec.h"
 #include "persistence/filemanager.h"
@@ -336,6 +337,7 @@ void BankServiceTest::opensAccountAndPersistsSecureCredentials()
 
 void BankServiceTest::locksRepeatedPasswordFailuresForSixtySeconds()
 {
+    // 连续五次失败触发 60 秒运行期锁定，锁定期内正确密码也不能绕过。
     ServiceHarness harness;
     const QString account = harness.openAndLogin();
     QVERIFY(harness.service->logoutDepositor().success);
@@ -362,6 +364,7 @@ void BankServiceTest::locksRepeatedPasswordFailuresForSixtySeconds()
 
 void BankServiceTest::createsIndependentFixedDeposits()
 {
+    // 同一账户连续存款必须生成独立存款号，重启后编号序列仍继续递增。
     ServiceHarness harness;
     const QString account = harness.openAndLogin();
     const DepositResult oneYear = harness.service->addFixedDeposit(
@@ -397,6 +400,7 @@ void BankServiceTest::createsIndependentFixedDeposits()
 
 void BankServiceTest::previewsAndExecutesEarlyWithdrawal()
 {
+    // 预览无副作用；正式提前部分支取才递减 remainingPrincipal 并记录利息流水。
     ServiceHarness harness;
     const QString account = harness.openAndLogin();
     const DepositResult deposited = harness.service->addFixedDeposit(
@@ -426,6 +430,7 @@ void BankServiceTest::previewsAndExecutesEarlyWithdrawal()
 
 void BankServiceTest::appliesMaturedInterestWithoutLateAccrual()
 {
+    // 到期日及更晚日期使用相同锁定利率，不追加逾期利息或复利。
     ServiceHarness harness;
     harness.openAndLogin();
     const DepositResult deposited = harness.service->addFixedDeposit(
@@ -471,6 +476,7 @@ void BankServiceTest::rejectsInvalidWithdrawalRequests()
 
 void BankServiceTest::updatesProfileAndReplacesPasswordSalt()
 {
+    // 资料变更保持密码不动，改密则必须产生新的随机 Salt 并使旧密码失效。
     ServiceHarness harness;
     const QString oldPassword = QStringLiteral("OldPassword");
     const QString newPassword = QStringLiteral("NewPassword");
@@ -506,6 +512,7 @@ void BankServiceTest::updatesProfileAndReplacesPasswordSalt()
 
 void BankServiceTest::enforcesLossRestrictionsAndPasswordUnfreeze()
 {
+    // 挂失后允许查看但禁止资金和资料操作；解挂必须再次验证当前密码。
     ServiceHarness harness;
     const QString password = QStringLiteral("SafePass123");
     const QString account = harness.openAndLogin(password);
@@ -553,6 +560,7 @@ void BankServiceTest::clearsDepositorWhenEmployeeChanges()
 
 void BankServiceTest::auditsRequiredBusinessEventsAndFiltersActions()
 {
+    // 主流程的成功与失败动作都应记录，并能按稳定动作码精确筛选。
     ServiceHarness harness;
     const QString oldPassword = QStringLiteral("SafePass123");
     const QString newPassword = QStringLiteral("NewSafePass456");
@@ -664,6 +672,7 @@ void BankServiceTest::isolatesAuditRecordsByCurrentEmployee()
 
 void BankServiceTest::warnsWithoutRollingBackWhenAuditSaveFails()
 {
+    // 审计失败必须显式警告，但不能回滚已经原子保存的核心业务。
     const auto codec = std::make_shared<ToggleCodec>();
     ServiceHarness harness(codec);
     codec->rejectAuditEncoding = true;
@@ -720,6 +729,7 @@ void BankServiceTest::warnsWithoutRollingBackWhenAuditSaveFails()
 
 void BankServiceTest::queriesDepositorsAndProtectsFullDetails()
 {
+    // 营业员只取得脱敏摘要，完整存款与流水仍要求对应储户密码会话。
     ServiceHarness harness;
     const QString password = QStringLiteral("SafePass123");
     const OpenAccountResult first = harness.service->openAccount(
@@ -784,6 +794,7 @@ void BankServiceTest::queriesDepositorsAndProtectsFullDetails()
 
 void BankServiceTest::calculatesThreeDayReserveFromRemainingPrincipal()
 {
+    // 只统计明天至大后天，并以部分支取后的剩余本金计算到期本息。
     ServiceHarness harness(nullptr,
                            QDateTime(QDate(2024, 1, 1), QTime(9, 0)));
     harness.openAndLogin();
@@ -836,6 +847,7 @@ void BankServiceTest::calculatesThreeDayReserveFromRemainingPrincipal()
 
 void BankServiceTest::roundsEachReserveDepositBeforeDailyAggregation()
 {
+    // 每笔不足一分的利息先独立舍入，再汇总，防止合并原始分数改变结果。
     ServiceHarness harness(nullptr,
                            QDateTime(QDate(2024, 1, 1), QTime(9, 0)));
     harness.openAndLogin();
@@ -860,6 +872,7 @@ void BankServiceTest::roundsEachReserveDepositBeforeDailyAggregation()
 
 void BankServiceTest::rollsBackEveryMutationWhenSavingFails()
 {
+    // 对每类写业务注入保存故障，确认候选状态不会泄漏到正式内存状态。
     const auto codec = std::make_shared<ToggleCodec>();
     ServiceHarness harness(codec);
     const QString password = QStringLiteral("SafePass123");

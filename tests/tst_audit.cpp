@@ -1,3 +1,4 @@
+// 审计测试：验证按营业员隔离、筛选、原子追加以及加密文件的失败保护。
 #include "audit/auditlogger.h"
 #include "persistence/datacodec.h"
 #include "security/securityutils.h"
@@ -115,6 +116,7 @@ public:
 
 } // namespace
 
+// 每个用例都在临时目录运行，避免读取或改写真实营业员审计数据。
 class AuditLoggerTest : public QObject
 {
     Q_OBJECT
@@ -214,6 +216,7 @@ void AuditLoggerTest::isolatesEmployeeFiles()
 
 void AuditLoggerTest::rejectsDamagedAndUnsupportedSchema()
 {
+    // 损坏 JSON 和未知 Schema 都必须明确拒绝，不能当作“尚无日志”。
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
     AuditLogger logger(temporaryDirectory.path(), plainCodec());
@@ -238,6 +241,7 @@ void AuditLoggerTest::rejectsDamagedAndUnsupportedSchema()
 
 void AuditLoggerTest::rejectsMixedEmployeeLogWithoutOverwrite()
 {
+    // 文件中混入其他营业员工号时，读取和后续追加都不能覆盖证据。
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
     AuditLogger logger(temporaryDirectory.path(), plainCodec());
@@ -257,6 +261,7 @@ void AuditLoggerTest::rejectsMixedEmployeeLogWithoutOverwrite()
 
 void AuditLoggerTest::preservesExistingLogWhenEncodingFails()
 {
+    // 编码故障发生后仍应保留上一版日志，验证读改写的原子性。
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
     const auto codec = std::make_shared<RejectingAuditCodec>();
@@ -274,6 +279,7 @@ void AuditLoggerTest::preservesExistingLogWhenEncodingFails()
 
 void AuditLoggerTest::encryptsAuditAndKeepsCompatibilityLogSeparate()
 {
+    // 综合覆盖加密日志、兼容文件隔离、篡改认证和主密钥缺失保护。
 #ifndef BANK_HAS_OPENSSL
     QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
 #else

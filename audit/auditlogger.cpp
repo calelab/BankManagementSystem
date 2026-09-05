@@ -1,3 +1,4 @@
+// 审计日志实现：严格校验日志对象，并以当前存储编码原子更新独立文件。
 #include "audit/auditlogger.h"
 
 #include "persistence/employeefilemanager.h"
@@ -140,6 +141,7 @@ bool recordFromJson(const QJsonValue &value,
     if (!auditResultFromString(resultText, &auditResult)) {
         return fail(errorMessage, QStringLiteral("审计结果码无效"));
     }
+    // 文件名限定营业员，记录中的工号必须再次匹配，防止日志串户或被调包。
     if (employeeId != expectedEmployeeId) {
         return fail(errorMessage, QStringLiteral("审计文件混入其他营业员工号"));
     }
@@ -192,6 +194,7 @@ AuditLoadResult AuditLogger::loadForEmployee(const QString &employeeId) const
     if (!codec_->initialize(&result.errorMessage)) {
         return result;
     }
+    // 尚无日志是正常空结果；已有文件一旦损坏则必须明确失败。
     if (!QFileInfo::exists(path)) {
         result.success = true;
         return result;
@@ -226,6 +229,7 @@ AuditAppendResult AuditLogger::append(const AuditRecord &record) const
         return result;
     }
 
+    // GCM 密文不能安全地原地尾追加，小规模课程日志采用“读全量、追加、原子重写”。
     const AuditLoadResult existing = loadForEmployee(record.employeeId());
     if (!existing.success) {
         result.errorMessage = existing.errorMessage;
@@ -242,6 +246,7 @@ AuditAppendResult AuditLogger::append(const AuditRecord &record) const
         return result;
     }
 
+    // 与核心数据相同，禁止直接覆盖回退，写入失败时保留上一版完整日志。
     QSaveFile file(filePathForEmployee(record.employeeId()));
     file.setDirectWriteFallback(false);
     if (!file.open(QIODevice::WriteOnly)) {
@@ -331,6 +336,7 @@ bool AuditLogger::deserialize(const QByteArray &plainJson,
         return fail(errorMessage, QStringLiteral("审计日志缺少 records 数组"));
     }
 
+    // 解析到局部集合并逐条验证，任何坏记录都不会产生可见的半解析结果。
     QVector<AuditRecord> parsedRecords;
     const QJsonArray array = recordsValue.toArray();
     parsedRecords.reserve(array.size());

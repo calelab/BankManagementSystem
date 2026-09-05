@@ -1,3 +1,4 @@
+// 支取对话框声明：基于选定存款预览本金、利息、类型和实际支付额。
 #ifndef WITHDRAWDIALOG_H
 #define WITHDRAWDIALOG_H
 

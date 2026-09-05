@@ -1,3 +1,4 @@
+// 主窗口实现：把 Designer 页面连接到 BankService，并维护各查询表格的展示状态。
 #include "mainwindow.h"
 
 #include "persistence/filemanager.h"
@@ -76,6 +77,7 @@ using AuditActionPresentation = std::pair<QString, QString>;
 
 const std::array<AuditActionPresentation, 10> &auditActionPresentations()
 {
+    // 文件中保留稳定英文动作码，界面和筛选框只负责映射为中文。
     static const std::array<AuditActionPresentation, 10> presentations{
         AuditActionPresentation{QStringLiteral("LOGIN"), QStringLiteral("储户登录")},
         AuditActionPresentation{QStringLiteral("OPEN_ACCOUNT"), QStringLiteral("开户")},
@@ -149,6 +151,7 @@ void prepareTable(QTableView *tableView)
 
 void resizeDepositTableColumns(QTableView *tableView)
 {
+    // 数据从空表变为有行时重新测量，并夹在可读范围内，避免等到点击表头才布局。
     struct WidthRange {
         int minimum;
         int maximum;
@@ -190,6 +193,7 @@ void prepareTransactionTable(QTableView *tableView)
     header->setStretchLastSection(false);
     header->setSectionResizeMode(QHeaderView::Interactive);
 
+    // 交易字段较固定，保留可拖动宽度并让营业员列吸收窗口剩余空间。
     constexpr std::array<int, 8> columnWidths{150, 180, 150, 110, 115, 115, 115, 90};
     for (int column = 0; column < static_cast<int>(columnWidths.size()); ++column) {
         tableView->setColumnWidth(column, columnWidths.at(column));
@@ -204,6 +208,7 @@ void prepareDepositorTable(QTableView *tableView)
     header->setSectionResizeMode(QHeaderView::Interactive);
     tableView->verticalHeader()->setVisible(false);
 
+    // 地址最适合随窗口伸缩，其他业务列保持最低可读宽度。
     constexpr std::array<int, 8> columnWidths{115, 120, 260, 85, 120, 105, 100, 135};
     for (int column = 0; column < static_cast<int>(columnWidths.size()); ++column) {
         tableView->setColumnWidth(column, columnWidths.at(column));
@@ -213,6 +218,7 @@ void prepareDepositorTable(QTableView *tableView)
 
 void resizeAuditTableColumns(QTableView *tableView)
 {
+    // 审计内容长度差异大，动态测量后限幅，防止失败原因独占整个表格。
     struct WidthRange {
         int minimum;
         int maximum;
@@ -264,6 +270,7 @@ MainWindow::MainWindow(std::unique_ptr<bank::BankService> service, QWidget *pare
     setupConnections();
 
     ui->forecastBaseDateEdit->setDate(QDate::currentDate());
+    // 下拉框显示中文，itemData 仍保存日志使用的英文动作码。
     ui->auditActionComboBox->addItem(QStringLiteral("全部操作"), QString());
     for (const auto &[code, text] : auditActionPresentations()) {
         ui->auditActionComboBox->addItem(text, code);
@@ -279,6 +286,7 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupConnections()
 {
+    // 这里仅连接交互入口；槽函数再统一调用服务层并刷新展示。
     connect(ui->employeeEnterButton,
             &QPushButton::clicked,
             this,
@@ -426,6 +434,7 @@ void MainWindow::setupConnections()
 
 void MainWindow::setupTableModels()
 {
+    // 模型以主窗口为 QObject 父对象，随窗口释放，不需要手工 delete。
     depositsModel_ = new QStandardItemModel(this);
     transactionsModel_ = new QStandardItemModel(this);
     depositorsModel_ = new QStandardItemModel(this);
@@ -475,6 +484,7 @@ void MainWindow::setupTableModels()
          QStringLiteral("结果"),
          QStringLiteral("失败原因")});
 
+    // setModel 后才存在对应 selectionModel，随后连接键盘和程序化选行变化。
     ui->depositsTableView->setModel(depositsModel_);
     ui->transactionsTableView->setModel(transactionsModel_);
     ui->allDepositorsTableView->setModel(depositorsModel_);
@@ -576,6 +586,7 @@ void MainWindow::switchEmployee()
         return;
     }
     const bank::ServiceResult result = bankService_->switchEmployee();
+    // 切换营业员时清除账户和查询展示，避免前一会话的信息残留在新会话中。
     clearAccountPresentation();
     depositorsModel_->removeRows(0, depositorsModel_->rowCount());
     reserveModel_->removeRows(0, reserveModel_->rowCount());
@@ -664,6 +675,7 @@ void MainWindow::logoutDepositor()
 
 void MainWindow::refreshAccountCenter()
 {
+    // 每次用服务层快照全量重建，避免旧行和旧 QModelIndex 指向已经变化的数据。
     depositsModel_->removeRows(0, depositsModel_->rowCount());
     transactionsModel_->removeRows(0, transactionsModel_->rowCount());
     const bank::AccountDetailsResult result = bankService_->currentAccountDetails();
@@ -707,6 +719,7 @@ void MainWindow::refreshAccountCenter()
             textItem(dateText(deposit.startDate())),
             textItem(dateText(deposit.maturityDate())),
             textItem(bank::depositStatusDisplayName(deposit.statusOn(referenceDate)))};
+        // UserRole 保存真实编号和整数分，操作按钮无需反解析格式化后的显示文本。
         row.first()->setData(deposit.depositId(), Qt::UserRole);
         row.first()->setData(deposit.remainingPrincipalCents(), Qt::UserRole + 1);
         depositsModel_->appendRow(row);
@@ -724,6 +737,7 @@ void MainWindow::refreshAccountCenter()
              textItem(bank::MoneyUtils::formatCents(transaction.actualPayoutCents())),
              textItem(transaction.employeeId())});
     }
+    // 刷新后清除选择，防止按钮继续操作刷新前选中的存款。
     ui->depositsTableView->selectionModel()->clear();
     updateSessionDisplay();
     updateAccountActionState();
@@ -755,6 +769,7 @@ void MainWindow::updateAccountActionState()
     const bool withdrawable = idIndex.isValid()
                               && idIndex.data(Qt::UserRole + 1).toLongLong() > 0;
 
+    // 挂失账户只能查看和解除挂失；结清存款即使显示也不能再次支取。
     ui->newDepositButton->setEnabled(normal);
     ui->withdrawSelectedButton->setEnabled(normal && withdrawable);
     ui->editProfileButton->setEnabled(normal);
@@ -775,6 +790,7 @@ QString MainWindow::selectedDepositId() const
 
 void MainWindow::createFixedDeposit()
 {
+    // 使用服务层业务日期，使界面摘要和可注入时钟下的实际存款日期一致。
     QDate startDate = bankService_->businessDate();
     if (!startDate.isValid()) {
         startDate = QDate::currentDate();
@@ -796,6 +812,7 @@ void MainWindow::withdrawSelectedDeposit()
         ui->accountMessageLabel->setText(QStringLiteral("请先选中一笔可支取的存款。"));
         return;
     }
+    // 对话框只做无副作用预览；用户接受后才在主窗口提交真实支取。
     WithdrawDialog dialog(bankService_.get(), depositId, this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
@@ -880,6 +897,7 @@ void MainWindow::showAllDepositors()
 
 void MainWindow::refreshAllDepositors()
 {
+    // 纯数字按账号精确查询，其余文本按姓名模糊查询，保持一个简洁搜索框。
     const QString searchText = ui->depositorSearchEdit->text().trimmed();
     static const QRegularExpression digits(QStringLiteral("^[0-9]+$"));
     const QString account = digits.match(searchText).hasMatch() ? searchText : QString();
@@ -939,6 +957,7 @@ void MainWindow::showReserveForecast()
 
 void MainWindow::refreshReserveForecast()
 {
+    // 服务结果固定包含基准日后的明天、后天和大后天，空日也显示零值行。
     const bank::ReserveForecastResult result = bankService_->reserveForecast(
         ui->forecastBaseDateEdit->date());
     reserveModel_->removeRows(0, reserveModel_->rowCount());
@@ -974,6 +993,7 @@ void MainWindow::showAuditLog()
 
 void MainWindow::refreshAuditLog()
 {
+    // currentData 取得稳定动作码筛选；表格再把动作与失败原因映射为简短中文。
     const QString action = ui->auditActionComboBox->currentData().toString();
     const bank::AuditQueryResult result = bankService_->currentEmployeeAudit(action);
     auditModel_->removeRows(0, auditModel_->rowCount());

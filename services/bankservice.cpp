@@ -1,3 +1,4 @@
+// 核心业务服务实现：在领域校验通过后以候选状态原子提交每次业务变更。
 #include "services/bankservice.h"
 
 #include "persistence/employeefilemanager.h"
@@ -16,6 +17,7 @@ namespace {
 
 bool checkedAdd(qint64 left, qint64 right, qint64 *sum)
 {
+    // 所有统计金额都在相加前检查上界，避免溢出后得到看似合理的负数。
     if (!sum || left < 0 || right < 0
         || left > std::numeric_limits<qint64>::max() - right) {
         return false;
@@ -34,6 +36,7 @@ BankService::BankService(std::shared_ptr<persistence::FileManager> fileManager, 
 
 ServiceResult BankService::initialize()
 {
+    // 先清空会话和内存状态，只有核心数据与营业员清单都成功加载才对外可用。
     initialized_ = false;
     auditLogger_.reset();
     currentEmployeeId_.clear();
@@ -182,6 +185,7 @@ OpenAccountResult BankService::openAccount(const QString &name,
         return result;
     }
 
+    // 所有写业务先修改候选副本；磁盘保存失败时原内存状态仍保持不变。
     BankState candidate = state_;
     const QString accountNumber = candidate.issueAccountNumber();
     if (accountNumber.isEmpty()) {
@@ -271,6 +275,7 @@ ServiceResult BankService::loginDepositor(const QString &accountNumber,
         loginAttempts_.erase(attempt);
     }
 
+    // 不存在账号与错误密码使用相同提示，避免登录界面泄露账号是否存在。
     const Depositor *depositor = state_.findDepositor(normalizedAccount);
     if (!depositor || !security::SecurityUtils::verifyPassword(password, *depositor)) {
         const bool locked = registerLoginFailure(normalizedAccount, now);
@@ -290,6 +295,7 @@ ServiceResult BankService::loginDepositor(const QString &accountNumber,
         return result;
     }
 
+    // 成功登录立即清除失败计数；锁定本身仅属于本次运行期防护。
     loginAttempts_.remove(normalizedAccount);
     currentDepositorAccount_ = normalizedAccount;
     ServiceResult result = succeeded(depositor->isLost()
@@ -325,6 +331,7 @@ DepositResult BankService::addFixedDeposit(qint64 principalCents, DepositTerm te
         return result;
     }
 
+    // 每次存款创建新的 FixedDeposit 和对应流水，不向已有存款追加本金。
     BankState candidate = state_;
     Depositor *depositor = candidate.findDepositor(currentDepositorAccount_);
     if (!depositor) {
@@ -387,6 +394,7 @@ DepositResult BankService::addFixedDeposit(qint64 principalCents, DepositTerm te
 WithdrawalPreviewResult BankService::previewWithdrawal(const QString &depositId,
                                                         qint64 principalCents) const
 {
+    // 预览沿用正式计息入口但不创建候选状态，因此用户取消不会产生任何变更。
     WithdrawalPreviewResult result;
     result.status = requireDepositorSession(false);
     if (!result.status.success) {
@@ -444,6 +452,7 @@ WithdrawalResult BankService::withdraw(const QString &depositId, qint64 principa
         return result;
     }
 
+    // 支取只作用于用户选定的一笔存款，不跨多笔存款自动凑款。
     BankState candidate = state_;
     Depositor *depositor = candidate.findDepositor(currentDepositorAccount_);
     FixedDeposit *deposit = depositor ? depositor->findDeposit(depositId) : nullptr;
@@ -566,6 +575,7 @@ ServiceResult BankService::changePassword(const QString &currentPassword,
     }
 
     QString credentialError;
+    // 修改密码重新生成随机 Salt，不能沿用旧凭据中的 Salt。
     const auto credentials = security::SecurityUtils::createPasswordCredentials(
         newPassword, &credentialError);
     if (!credentials) {
@@ -600,6 +610,7 @@ ServiceResult BankService::changePassword(const QString &currentPassword,
 
 ServiceResult BankService::reportLoss()
 {
+    // 挂失后仍允许账户登录和查看，但 requireDepositorSession(false) 会禁止交易与修改。
     const ServiceResult requirement = requireDepositorSession(true);
     if (!requirement.success) {
         return requirement;
@@ -640,6 +651,7 @@ ServiceResult BankService::reportLoss()
 
 ServiceResult BankService::unfreezeAccount(const QString &currentPassword)
 {
+    // 解除挂失是敏感操作，必须再次验证当前密码并记录成功或失败审计。
     const ServiceResult requirement = requireDepositorSession(true);
     if (!requirement.success) {
         return requirement;
@@ -721,6 +733,7 @@ DepositorQueryResult BankService::queryDepositors(
         return result;
     }
 
+    // 查询只组装脱敏摘要，密码派生信息与完整交易不会离开服务层。
     for (const Depositor &depositor : state_.depositors()) {
         if (!normalizedAccount.isEmpty()
             && depositor.accountNumber() != normalizedAccount) {
@@ -820,6 +833,7 @@ ReserveForecastResult BankService::reserveForecast(const QDate &baseDate) const
                                QStringLiteral("三日备款基准日期无效"));
         return result;
     }
+    // 今天不计入；即使某天没有到期存款，也预先保留明天起连续三行零值结果。
     for (int offset = 1; offset <= 3; ++offset) {
         DailyReserveForecast day;
         day.date = effectiveBaseDate.addDays(offset);
@@ -843,6 +857,7 @@ ReserveForecastResult BankService::reserveForecast(const QDate &baseDate) const
             }
 
             QString calculationError;
+            // 以剩余本金复用统一到期计息；每笔先舍入到分，再用 qint64 汇总。
             const auto interest = InterestCalculator::maturedInterest(
                 deposit.remainingPrincipalCents(),
                 deposit.annualRateBasisPoints(),
@@ -981,6 +996,7 @@ ServiceResult BankService::commitCandidate(BankState candidate,
                                            const QString &successMessage,
                                            const QString &auditAccountNumber)
 {
+    // QSaveFile 完成原子替换后才发布候选状态，保证内存与磁盘不会各成功一半。
     const persistence::FileSaveResult saveResult = fileManager_->save(candidate);
     if (!saveResult.success) {
         ServiceResult result = failed(
@@ -1007,6 +1023,7 @@ void BankService::appendAudit(ServiceResult *status,
                               AuditResult result,
                               const QString &reasonCode) const
 {
+    // 审计是附属记录：失败会成为显式警告，但不能回滚已经成功落盘的核心业务。
     if (!status) {
         return;
     }
@@ -1051,6 +1068,7 @@ QDateTime BankService::currentDateTime() const
 
 bool BankService::registerLoginFailure(const QString &accountNumber, const QDateTime &now)
 {
+    // 五次连续失败锁定 60 秒；该表不持久化，避免把安全运行状态混入业务文件。
     LoginAttemptState &attempt = loginAttempts_[accountNumber];
     if (attempt.lockedUntil.isValid() && now >= attempt.lockedUntil) {
         attempt = {};

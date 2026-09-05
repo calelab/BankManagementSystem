@@ -1,3 +1,4 @@
+// 交易记录模型：保存每次存款或支取的不可变业务事实。
 #ifndef TRANSACTION_H
 #define TRANSACTION_H
 
@@ -45,8 +46,10 @@ private:
     QString accountNumber_;
     QString depositId_;
     QDateTime dateTime_;
+    // 两个枚举共同表达存款、提前支取和到期支取三种合法组合。
     TransactionType type_ = TransactionType::Deposit;
     WithdrawalKind withdrawalKind_ = WithdrawalKind::None;
+    // 金额统一以分保存；存款利息恒为零，支取利息记录当次计算结果。
     qint64 principalAmountCents_ = 0;
     qint64 interestAmountCents_ = 0;
     QString employeeId_;

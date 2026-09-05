@@ -1,3 +1,4 @@
+// 银行业务公共类型实现：提供期限、固定利率和中文展示名称映射。
 #include "models/banktypes.h"
 
 namespace bank {
@@ -17,6 +18,7 @@ int termYears(DepositTerm term)
 
 int annualRateBasisPoints(DepositTerm term)
 {
+    // 课程规则固定为 1.98%、2.25% 和 3.50%，用整数基点避免 double 误差。
     switch (term) {
     case DepositTerm::OneYear:
         return 198;

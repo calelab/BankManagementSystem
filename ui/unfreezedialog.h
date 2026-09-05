@@ -1,3 +1,4 @@
+// 解除挂失对话框声明：采集再次验证身份所需的当前密码。
 #ifndef UNFREEZEDIALOG_H
 #define UNFREEZEDIALOG_H
 

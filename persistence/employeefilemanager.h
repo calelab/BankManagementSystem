@@ -1,3 +1,4 @@
+// 营业员文件管理声明：维护独立工号清单并严格校验文件内容。
 #ifndef EMPLOYEEFILEMANAGER_H
 #define EMPLOYEEFILEMANAGER_H
 

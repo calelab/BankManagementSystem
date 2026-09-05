@@ -1,3 +1,4 @@
+// 磁盘编码实现：封装加密文件格式、主密钥初始化和构建期模式选择。
 #include "persistence/datacodec.h"
 
 #include "security/securityutils.h"
@@ -6,6 +7,7 @@
 #include <QFileInfo>
 #include <QtEndian>
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <utility>
@@ -103,6 +105,7 @@ AesGcmCodec::AesGcmCodec(QString dataDirectory)
 
 bool AesGcmCodec::initialize(QString *errorMessage) const
 {
+    // 同一编码器惰性缓存一次主密钥，避免每条审计记录重复读取敏感文件。
     if (masterKey_.size() == security::SecurityUtils::AesKeySize) {
         if (errorMessage) {
             errorMessage->clear();
@@ -139,6 +142,7 @@ bool AesGcmCodec::encode(const QByteArray &plainJson,
         return false;
     }
 
+    // 固定头作为 AAD 认证，使版本、长度以及 Nonce/Tag 参数也无法被静默篡改。
     const QByteArray header = makeHeader(static_cast<quint64>(plainJson.size()));
     security::AesGcmPayload payload;
     if (!security::SecurityUtils::encryptAes256Gcm(
@@ -171,6 +175,7 @@ bool AesGcmCodec::decode(const QByteArray &encodedData,
         return false;
     }
 
+    // 先验证封装边界再调用 GCM 认证，畸形长度不会进入底层密码接口。
     const qsizetype fixedSize = EncryptedHeaderSize
                                 + security::SecurityUtils::AesNonceSize
                                 + security::SecurityUtils::AesTagSize;
@@ -213,6 +218,7 @@ bool AesGcmCodec::decode(const QByteArray &encodedData,
 
 bool AesGcmCodec::encryptedArtifactsExist() const
 {
+    // 核心密文或任一加密审计存在时都禁止重建主密钥，防止永久丢失旧数据。
     if (QFileInfo::exists(QDir(dataDirectory_).filePath(fileName()))) {
         return true;
     }
@@ -225,6 +231,7 @@ bool AesGcmCodec::encryptedArtifactsExist() const
 
 std::shared_ptr<const DataCodec> createDefaultDataCodec(const QString &dataDirectory)
 {
+    // 加密能力由构建期决定；两种模式使用不同文件名，绝不互相覆盖。
 #ifdef BANK_HAS_OPENSSL
     return std::make_shared<AesGcmCodec>(dataDirectory);
 #else

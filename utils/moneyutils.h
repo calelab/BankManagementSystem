@@ -1,3 +1,4 @@
+// 金额工具声明：在用户输入、整数分和统一人民币展示之间转换。
 #ifndef MONEYUTILS_H
 #define MONEYUTILS_H
 

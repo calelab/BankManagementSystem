@@ -1,3 +1,4 @@
+// 银行状态聚合声明：集中保存储户集合和跨重启唯一的编号序列。
 #ifndef BANKSTATE_H
 #define BANKSTATE_H
 
@@ -44,9 +45,11 @@ public:
 
 private:
     int schemaVersion_ = CurrentSchemaVersion;
+    // 三类序列随数据持久化且只递增，防止重启后重新使用历史编号。
     quint64 nextAccountSequence_ = 1;
     quint64 nextDepositSequence_ = 1;
     quint64 nextTransactionSequence_ = 1;
+    // 储户是顶层聚合；每个储户内部再拥有多笔存款和对应流水。
     QVector<Depositor> depositors_;
 };
 

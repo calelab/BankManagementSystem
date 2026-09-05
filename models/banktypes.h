@@ -1,3 +1,4 @@
+// 银行业务公共类型：定义储种、状态、交易类型及其稳定换算规则。
 #ifndef BANKTYPES_H
 #define BANKTYPES_H
 
@@ -24,6 +25,7 @@ enum class TransactionType {
     Withdrawal
 };
 
+// None 只配合存款交易；支取必须明确区分提前支取或正常到期支取。
 enum class WithdrawalKind {
     None,
     Early,
@@ -33,7 +35,7 @@ enum class WithdrawalKind {
 // 返回储种对应的完整期限；遇到无效枚举值时返回 0。
 int termYears(DepositTerm term);
 
-// 返回储种对应的年利率基点数；遇到无效枚举值时返回 0。
+// 利率使用整数基点保存，例如 198 表示 1.98%；无效储种返回 0。
 int annualRateBasisPoints(DepositTerm term);
 
 QString depositTermDisplayName(DepositTerm term);

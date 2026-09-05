@@ -1,3 +1,4 @@
+// 储户聚合声明：管理账户资料、密码凭据、多笔定期存款和交易历史。
 #ifndef DEPOSITOR_H
 #define DEPOSITOR_H
 
@@ -80,15 +81,18 @@ public:
 private:
     QString accountNumber_;
     QString name_;
+    // 仅保存 PBKDF2 所需的 Salt、派生结果和参数，不保存明文密码。
     QByteArray passwordSalt_;
     QByteArray passwordHash_;
     int passwordKdfIterations_ = 0;
     QString passwordKdfAlgorithm_ = QStringLiteral("PBKDF2-HMAC-SHA256");
     QString address_;
+    // lost 与 lostDate 必须同步出现或同步清空，避免含义冲突。
     bool lost_ = false;
     std::optional<QDate> lostDate_;
     QString openingEmployeeId_;
     QDateTime createdAt_;
+    // 同一储户聚合多笔相互独立的 FixedDeposit，并保留其全部历史流水。
     QVector<FixedDeposit> deposits_;
     QVector<Transaction> transactions_;
 };

@@ -1,3 +1,4 @@
+// 解除挂失对话框实现：阻止空密码提交，实际验证仍交给业务服务。
 #include "ui/unfreezedialog.h"
 
 #include "ui_unfreezedialog.h"

@@ -17,3 +17,15 @@ Makefile
 
 # Qt Creator / clangd
 .qtc_clangd/
+
+# Additional CMake build directories
+build-*/
+
+# Runtime application data
+BankManagementSystemData/
+
+# Encrypted business and audit data
+*.enc
+
+# Local encryption key
+master.key

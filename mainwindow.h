@@ -1,3 +1,4 @@
+// 主窗口声明：负责页面导航、展示模型以及界面与业务服务的连接。
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
@@ -27,6 +28,7 @@ public:
     ~MainWindow() override;
 
 private:
+    // 信号槽只负责收集输入和刷新展示，所有业务判断由 BankService 完成。
     void setupConnections();
     void setupTableModels();
     void initializeService();
@@ -61,8 +63,10 @@ private:
     void showAuditLog();
     void refreshAuditLog();
 
+    // ui 来自 Designer 生成类；这些标准模型只承载当前页面的只读展示数据。
     Ui::MainWindow *ui;
     std::unique_ptr<bank::BankService> bankService_;
+    // 依次对应定期存款、交易、全部储户、三日备款和审计日志五张表。
     QStandardItemModel *depositsModel_ = nullptr;
     QStandardItemModel *transactionsModel_ = nullptr;
     QStandardItemModel *depositorsModel_ = nullptr;

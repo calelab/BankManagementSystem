@@ -1,3 +1,4 @@
+// 领域层测试：覆盖金额、期限、计息、存款状态和对象约束的正常与边界情况。
 #include "models/bankstate.h"
 #include "models/banktypes.h"
 #include "models/depositor.h"
@@ -255,6 +256,7 @@ void DomainTest::calculatesEarlyInterest()
 
 void DomainTest::roundsInterestToNearestCent()
 {
+    // 用不足一分和恰过半分的数据确认所有计息路径采用同一整数舍入规则。
     const auto roundsDown = InterestCalculator::maturedInterest(2, 2500, 1);
     const auto roundsUp = InterestCalculator::maturedInterest(2, 2501, 1);
     QVERIFY(roundsDown.has_value());
@@ -270,6 +272,7 @@ void DomainTest::roundsInterestToNearestCent()
 
 void DomainTest::classifiesWithdrawalAtMaturityBoundary()
 {
+    // 到期日前一天和到期日当天分别锁定提前、正常到期两条业务分支。
     const FixedDeposit deposit = makeDeposit();
     const auto early = InterestCalculator::withdrawal(deposit, 400000, QDate(2027, 1, 14));
     const auto matured = InterestCalculator::withdrawal(deposit, 400000, QDate(2027, 1, 15));
@@ -326,6 +329,7 @@ void DomainTest::validatesTransactions()
 
 void DomainTest::validatesDepositorAggregate()
 {
+    // 验证一个账户能聚合多笔存款，同时拒绝重复编号和跨账户流水引用。
     Depositor depositor = makeDepositor();
     QString error;
     QVERIFY2(depositor.isValid(&error), qPrintable(error));
@@ -374,6 +378,7 @@ void DomainTest::issuesPersistentIdentifiers()
 
 void DomainTest::validatesBankStateGlobalUniqueness()
 {
+    // 银行级校验必须发现不同储户之间重复的存款号或交易号。
     BankState validState(BankState::CurrentSchemaVersion, 2, 2, 2, {makeDepositor()});
     QString error;
     QVERIFY2(validState.isValid(&error), qPrintable(error));

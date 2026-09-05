@@ -1,3 +1,4 @@
+// 审计记录模型：描述可持久化的业务操作结果及其领域约束。
 #ifndef AUDITRECORD_H
 #define AUDITRECORD_H
 
@@ -10,6 +11,7 @@ namespace bank {
 enum class AuditResult {
     Success,
     Failure,
+    // 核心业务成功但审计等附属步骤异常时使用警告，不伪装成业务失败。
     Warning
 };
 
@@ -43,6 +45,7 @@ private:
     QDateTime dateTime_;
     QString employeeId_;
     QString accountNumber_;
+    // 动作与原因使用稳定英文机器码持久化，中文仅在 UI 展示层映射。
     QString action_;
     qint64 principalAmountCents_ = 0;
     qint64 interestAmountCents_ = 0;

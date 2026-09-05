@@ -1,3 +1,4 @@
+// 安全工具声明：集中封装密码派生、安全随机数、AES-GCM 和主密钥管理。
 #ifndef SECURITYUTILS_H
 #define SECURITYUTILS_H
 
@@ -13,6 +14,7 @@ class Depositor;
 namespace bank::security {
 
 struct PasswordCredentials {
+    // 每个储户拥有独立 Salt；hash 是 PBKDF2 派生结果而非可逆密码。
     QByteArray salt;
     QByteArray hash;
     int iterations = 0;
@@ -20,6 +22,7 @@ struct PasswordCredentials {
 };
 
 struct AesGcmPayload {
+    // Nonce 和 Tag 随密文保存；Nonce 每次随机，Tag 用于认证密文与 AAD。
     QByteArray nonce;
     QByteArray authenticationTag;
     QByteArray ciphertext;

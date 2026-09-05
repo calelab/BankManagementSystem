@@ -1,3 +1,4 @@
+// 界面测试：通过真实控件和对话框驱动主要流程，验证页面、按钮及表格刷新。
 #include "mainwindow.h"
 
 #include "persistence/filemanager.h"
@@ -90,6 +91,7 @@ private slots:
 
 void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
 {
+    // 验证 Designer 控件、密码遮蔽、初始按钮状态及各表格的可读布局策略。
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
     QDateTime now(QDate(2026, 1, 1), QTime(9, 0));
@@ -221,6 +223,7 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
 
 void MainWindowTest::validatesDialogInputsBeforeAccepting()
 {
+    // 对话框只接受完整、可解析输入，取消或校验失败不会触发服务层操作。
     DepositDialog depositDialog(QDate(2026, 1, 1));
     QSignalSpy depositAccepted(&depositDialog, &QDialog::accepted);
     requiredChild<QLineEdit>(&depositDialog, "depositAmountEdit")->setText(QStringLiteral("0"));
@@ -285,6 +288,7 @@ void MainWindowTest::validatesDialogInputsBeforeAccepting()
 
 void MainWindowTest::completesMainWorkflowThroughUiConnections()
 {
+    // 使用真实点击贯通开户、登录、两笔存款、支取、资料、挂失、查询和重启恢复。
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
     QDateTime now(QDate(2026, 1, 1), QTime(9, 0));
@@ -678,6 +682,7 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
 
 void MainWindowTest::filtersClosedDepositsAndDisablesWithdrawal()
 {
+    // 结清存款默认隐藏；用户选择显示后仍不能再次点击支取。
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
     QDateTime now(QDate(2026, 1, 1), QTime(9, 0));

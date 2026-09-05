@@ -1,3 +1,4 @@
+// 定期存款模型：描述一笔本金独立、期限和利率锁定的存款合同。
 #ifndef FIXEDDEPOSIT_H
 #define FIXEDDEPOSIT_H
 
@@ -48,10 +49,12 @@ public:
 
 private:
     QString depositId_;
+    // original 在开户后保持不变；remaining 随部分或全部支取递减。
     qint64 originalPrincipalCents_ = 0;
     qint64 remainingPrincipalCents_ = 0;
     QDate startDate_;
     DepositTerm term_ = DepositTerm::OneYear;
+    // 利率在存入时锁定，到期日由存入日和期限推导，加载时会重新核对。
     int annualRateBasisPoints_ = 0;
     QDate maturityDate_;
     QString openingEmployeeId_;

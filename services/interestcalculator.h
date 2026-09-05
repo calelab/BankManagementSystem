@@ -1,3 +1,4 @@
+// 计息服务声明：集中定义提前支取、到期支取和统一整数舍入规则。
 #ifndef INTERESTCALCULATOR_H
 #define INTERESTCALCULATOR_H
 
@@ -15,6 +16,7 @@ class FixedDeposit;
 
 struct WithdrawalCalculation {
     WithdrawalKind kind = WithdrawalKind::None;
+    // 三个金额均以分表示，实付额等于本次本金与利息之和。
     qint64 principalCents = 0;
     qint64 interestCents = 0;
     qint64 actualPayoutCents = 0;
@@ -24,6 +26,7 @@ struct WithdrawalCalculation {
 class InterestCalculator
 {
 public:
+    // 利率使用万分之一基点，提前支取按 365 天折算实际存款天数。
     static constexpr int EarlyWithdrawalRateBasisPoints = 5;
     static constexpr qint64 BasisPointsDenominator = 10000;
     static constexpr qint64 DaysPerYear = 365;

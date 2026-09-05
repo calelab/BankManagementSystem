@@ -1,3 +1,4 @@
+// 支取对话框实现：随输入刷新只读预览，并在确认时返回合法本金。
 #include "ui/withdrawdialog.h"
 
 #include "services/bankservice.h"
@@ -57,6 +58,7 @@ qint64 WithdrawDialog::principalCents() const
 
 void WithdrawDialog::refreshPreview()
 {
+    // 文本一变化先废弃旧预览，只有本次服务计算成功才重新允许确认。
     previewValid_ = false;
     ui->confirmWithdrawButton->setEnabled(false);
     ui->withdrawKindLabel->setText(QStringLiteral("等待有效金额"));
@@ -75,6 +77,7 @@ void WithdrawDialog::refreshPreview()
         return;
     }
 
+    // 预览不修改账户；关闭或取消对话框不会产生交易记录。
     const bank::WithdrawalPreviewResult preview = service_->previewWithdrawal(depositId_,
                                                                                *parsed);
     if (!preview.status.success) {

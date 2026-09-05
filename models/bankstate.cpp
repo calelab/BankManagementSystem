@@ -1,3 +1,4 @@
+// 银行状态聚合实现：生成全局编号并验证完整领域对象图的一致性。
 #include "models/bankstate.h"
 
 #include <QSet>
@@ -19,6 +20,7 @@ bool failValidation(QString *errorMessage, const QString &message)
 
 QString issuePrefixedId(const QString &prefix, quint64 &sequence)
 {
+    // 先检查序列上界再递增，保证绝不因溢出生成重复编号。
     if (sequence == 0 || sequence == std::numeric_limits<quint64>::max()) {
         return {};
     }
@@ -103,6 +105,7 @@ bool BankState::addDepositor(const Depositor &depositor, QString *errorMessage)
         return failValidation(errorMessage, QStringLiteral("储户无效：%1").arg(childError));
     }
 
+    // 存款号和交易号跨储户也必须唯一，便于审计和持久化恢复后准确关联。
     QSet<QString> existingDepositIds;
     QSet<QString> existingTransactionIds;
     for (const Depositor &existing : depositors_) {
@@ -157,6 +160,7 @@ const Depositor *BankState::findDepositor(const QString &accountNumber) const
 
 bool BankState::isValid(QString *errorMessage) const
 {
+    // 从持久化数据重建全局编号集合，并递归验证每个储户及其子对象。
     if (schemaVersion_ != CurrentSchemaVersion) {
         return failValidation(errorMessage, QStringLiteral("Schema 版本不受支持"));
     }

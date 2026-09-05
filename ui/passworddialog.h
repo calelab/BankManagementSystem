@@ -1,3 +1,4 @@
+// 修改密码对话框声明：安全采集当前密码、新密码及二次确认。
 #ifndef PASSWORDDIALOG_H
 #define PASSWORDDIALOG_H
 

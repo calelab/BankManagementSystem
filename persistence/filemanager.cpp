@@ -1,3 +1,4 @@
+// 核心数据文件管理实现：通过 QSaveFile 保证失败写入不会破坏旧数据。
 #include "persistence/filemanager.h"
 
 #include "persistence/bankstatejsonserializer.h"
@@ -57,6 +58,7 @@ FileLoadResult FileManager::load() const
     }
 
     const QString path = dataFilePath();
+    // 首次运行仅返回合法空状态；已有文件的读取或解码错误绝不静默重建。
     if (!QFileInfo::exists(path)) {
         result.success = true;
         result.initializedEmptyState = true;
@@ -102,6 +104,7 @@ FileSaveResult FileManager::save(const BankState &state) const
     if (!codec_->encode(plainJson, &encodedData, &result.errorMessage)) {
         return result;
     }
+    // JSON 先经过当前编码器，再由 QSaveFile 写临时文件并原子替换目标。
     QSaveFile file(dataFilePath());
     // 禁止退化为直接覆盖，临时文件或原子替换失败时必须保留旧文件。
     file.setDirectWriteFallback(false);

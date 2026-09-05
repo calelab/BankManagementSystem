@@ -1,3 +1,4 @@
+// 审计日志接口：按营业员隔离保存和读取可追踪的业务记录。
 #ifndef AUDITLOGGER_H
 #define AUDITLOGGER_H
 
@@ -38,6 +39,7 @@ public:
     AuditAppendResult append(const AuditRecord &record) const;
 
 private:
+    // 序列化层保存稳定机器码；DataCodec 决定日志是加密文件还是兼容 JSON。
     bool ensureAuditDirectory(QString *errorMessage) const;
     bool serialize(const QVector<AuditRecord> &records,
                    QByteArray *plainJson,

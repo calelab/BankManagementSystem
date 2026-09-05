@@ -1,3 +1,4 @@
+// JSON 序列化边界：在领域对象与版本化 UTF-8 JSON 之间严格转换。
 #ifndef BANKSTATEJSONSERIALIZER_H
 #define BANKSTATEJSONSERIALIZER_H
 

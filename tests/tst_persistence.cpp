@@ -1,3 +1,4 @@
+// 持久化测试：覆盖 JSON 约束、原子写入、加密往返、篡改和模式隔离。
 #include "models/bankstate.h"
 #include "persistence/bankstatejsonserializer.h"
 #include "persistence/datacodec.h"
@@ -104,7 +105,7 @@ std::shared_ptr<const DataCodec> plainCodec()
     return std::make_shared<PlainJsonCodec>();
 }
 
-// 该测试编码器模拟未来加密层在编码阶段失败，用于验证旧文件不会被覆盖。
+// 该测试编码器模拟编码阶段失败，用于验证旧文件不会被覆盖。
 class RejectingCodec final : public DataCodec
 {
 public:
@@ -297,6 +298,7 @@ void PersistenceTest::initializesEmptyStateWhenFileIsMissing()
 
 void PersistenceTest::selectsDefaultStorageModeAndIsolatesFiles()
 {
+    // 同一目录中的加密文件和兼容 JSON 使用不同名称，切换构建模式不会覆盖对方。
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
     const FileManager defaultManager(temporaryRoot.path());
@@ -337,6 +339,7 @@ void PersistenceTest::selectsDefaultStorageModeAndIsolatesFiles()
 
 void PersistenceTest::encryptedRoundTripUsesFreshNonce()
 {
+    // 同一明文连续保存应产生不同密文，同时可用同一主密钥正确恢复。
 #ifndef BANK_HAS_OPENSSL
     QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
 #else
@@ -376,6 +379,7 @@ void PersistenceTest::encryptedRoundTripUsesFreshNonce()
 
 void PersistenceTest::encryptedTamperingIsRejectedWithoutOverwrite()
 {
+    // 修改任意密文字节都应触发 GCM 认证失败，且加载过程不得重写原文件。
 #ifndef BANK_HAS_OPENSSL
     QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
 #else
@@ -398,6 +402,7 @@ void PersistenceTest::encryptedTamperingIsRejectedWithoutOverwrite()
 
 void PersistenceTest::missingMasterKeyRejectsExistingCiphertext()
 {
+    // 已有密文缺少 master.key 时必须保护性失败，不能生成新密钥或空数据。
 #ifndef BANK_HAS_OPENSSL
     QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
 #else
@@ -448,6 +453,7 @@ void PersistenceTest::rejectsMalformedOrUnsupportedJson()
 
 void PersistenceTest::rejectsBrokenDomainConstraintsWithoutChangingOutput()
 {
+    // JSON 语法正确仍需通过领域校验；失败时调用者原对象保持完整不变。
     QJsonObject root = QJsonDocument::fromJson(serializeState(makeState())).object();
     QJsonArray depositors = root.value(QStringLiteral("depositors")).toArray();
     QJsonObject depositor = depositors.first().toObject();
@@ -527,6 +533,7 @@ void PersistenceTest::rejectsInvalidStateBeforeCreatingFile()
 
 void PersistenceTest::codecFailurePreservesExistingFileAndMemory()
 {
+    // 故障注入验证编码失败发生在 QSaveFile 之前，旧文件与内存状态均不受影响。
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
     const FileManager plainManager(temporaryRoot.path(), plainCodec());
@@ -548,6 +555,7 @@ void PersistenceTest::codecFailurePreservesExistingFileAndMemory()
 
 void PersistenceTest::atomicWriteFailurePreservesExistingFile()
 {
+    // 目标无法原子替换时保存应失败，而不是退化为可能截断旧文件的直接覆盖。
 #ifdef Q_OS_UNIX
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());

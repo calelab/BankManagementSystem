@@ -1,3 +1,4 @@
+// 资料编辑对话框声明：限制储户只能修改姓名与地址。
 #ifndef PROFILEDIALOG_H
 #define PROFILEDIALOG_H
 

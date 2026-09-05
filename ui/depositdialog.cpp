@@ -1,3 +1,4 @@
+// 新增存款对话框实现：完成界面级输入校验，不复制核心存款业务规则。
 #include "ui/depositdialog.h"
 
 #include "models/fixeddeposit.h"
@@ -19,6 +20,7 @@ DepositDialog::DepositDialog(const QDate &startDate, QWidget *parent)
             &QButtonGroup::idToggled,
             this,
             [this](int, bool checked) {
+                // 单选切换会同时发出取消与选中事件，只处理新选中项避免重复刷新。
                 if (checked) {
                     updateTermSummary();
                 }
@@ -60,6 +62,7 @@ void DepositDialog::updateTermSummary()
 
 void DepositDialog::validateAndAccept()
 {
+    // 金额在界面边界直接解析为整数分，避免把浮点误差传入服务层。
     QString errorMessage;
     const auto parsed = bank::MoneyUtils::parseCents(ui->depositAmountEdit->text(),
                                                      &errorMessage);

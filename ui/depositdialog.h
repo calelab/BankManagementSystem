@@ -1,3 +1,4 @@
+// 新增存款对话框声明：采集本金与期限，并即时展示固定利率和到期日。
 #ifndef DEPOSITDIALOG_H
 #define DEPOSITDIALOG_H
 

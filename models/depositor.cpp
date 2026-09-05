@@ -1,3 +1,4 @@
+// 储户聚合实现：在单个账户边界内维护资料、挂失状态及子对象一致性。
 #include "models/depositor.h"
 
 #include <QRegularExpression>
@@ -141,6 +142,7 @@ bool Depositor::replacePasswordCredentials(QByteArray salt,
                                            QString algorithm,
                                            QString *errorMessage)
 {
+    // Salt、哈希、迭代次数和算法标识必须整体替换，不能形成混合凭据。
     if (salt.size() != 16 || hash.size() != 32 || iterations != 210000
         || algorithm != supportedPasswordKdfAlgorithm()) {
         return failValidation(errorMessage, QStringLiteral("密码派生信息无效"));
@@ -157,6 +159,7 @@ bool Depositor::replacePasswordCredentials(QByteArray salt,
 
 bool Depositor::reportLoss(const QDate &date, QString *errorMessage)
 {
+    // 状态和日期在同一次操作中更新，保证序列化后不会出现“已挂失但无日期”。
     if (lost_) {
         return failValidation(errorMessage, QStringLiteral("账户已经挂失"));
     }
@@ -195,6 +198,7 @@ bool Depositor::addDeposit(const FixedDeposit &deposit, QString *errorMessage)
 
 bool Depositor::addTransaction(const Transaction &transaction, QString *errorMessage)
 {
+    // 流水只能引用本账户已经存在的存款，避免产生跨账户悬空记录。
     QString childError;
     if (!transaction.isValid(&childError)) {
         return failValidation(errorMessage, QStringLiteral("交易无效：%1").arg(childError));
@@ -239,6 +243,7 @@ const FixedDeposit *Depositor::findDeposit(const QString &depositId) const
 
 bool Depositor::isValid(QString *errorMessage) const
 {
+    // 聚合校验向下覆盖每笔存款和流水，并检查编号与关联关系。
     static const QRegularExpression accountPattern(QStringLiteral("^[0-9]+$"));
     static const QRegularExpression employeeIdPattern(QStringLiteral("^E(?:0[1-9]|[1-9][0-9])$"));
 

@@ -1,3 +1,4 @@
+// 磁盘编码边界：为明文兼容模式和 AES-256-GCM 模式提供统一接口。
 #ifndef DATACODEC_H
 #define DATACODEC_H
 

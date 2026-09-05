@@ -1,3 +1,4 @@
+// 交易记录实现：验证交易类型、支取方式及本息金额的合法组合。
 #include "models/transaction.h"
 
 #include <QRegularExpression>
@@ -86,6 +87,7 @@ const QString &Transaction::employeeId() const
 
 qint64 Transaction::actualPayoutCents() const
 {
+    // 构造后的对象只在 isValid() 通过后使用，因此本息相加已完成溢出校验。
     return principalAmountCents_ + interestAmountCents_;
 }
 
@@ -118,6 +120,7 @@ bool Transaction::isValid(QString *errorMessage) const
         return failValidation(errorMessage, QStringLiteral("营业员工号格式无效"));
     }
 
+    // 存款流水不含利息；支取流水必须明确记录提前或到期类型。
     if (type_ == TransactionType::Deposit) {
         if (withdrawalKind_ != WithdrawalKind::None || interestAmountCents_ != 0) {
             return failValidation(errorMessage, QStringLiteral("存款交易不能包含支取类型或利息"));

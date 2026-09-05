@@ -1,3 +1,4 @@
+// 核心业务服务声明：统一承接会话、账户业务、查询、持久化和审计协调。
 #ifndef BANKSERVICE_H
 #define BANKSERVICE_H
 
@@ -42,6 +43,7 @@ struct ServiceResult {
     bool success = false;
     ServiceError error = ServiceError::None;
     QString message;
+    // 核心业务已成功但审计写入失败时单独提示，不把已提交业务误报为失败。
     QString warningMessage;
 };
 
@@ -114,6 +116,7 @@ struct AccountDetailsResult {
 struct DailyReserveForecast {
     QDate date;
     int depositCount = 0;
+    // 每笔金额先按统一规则舍入到分，再使用 qint64 汇总当天结果。
     qint64 principalCents = 0;
     qint64 interestCents = 0;
     qint64 reserveCents = 0;
@@ -196,6 +199,7 @@ public:
 
 private:
     struct LoginAttemptState {
+        // 登录限制只保存在本次程序运行期，成功登录或锁定期届满后清除。
         int consecutiveFailures = 0;
         QDateTime lockedUntil;
     };
@@ -217,11 +221,14 @@ private:
     QDateTime currentDateTime() const;
     bool registerLoginFailure(const QString &accountNumber, const QDateTime &now);
 
+    // 文件管理器和审计器负责磁盘边界；服务层只协调业务提交顺序。
     std::shared_ptr<persistence::FileManager> fileManager_;
     std::unique_ptr<audit::AuditLogger> auditLogger_;
+    // 可注入时钟使到期、锁定和三日统计测试不依赖真实当天。
     Clock clock_;
     BankState state_;
     QSet<QString> validEmployeeIds_;
+    // 营业员与储户是两层会话，完整账户明细必须经过储户密码登录。
     QString currentEmployeeId_;
     QString currentDepositorAccount_;
     QHash<QString, LoginAttemptState> loginAttempts_;

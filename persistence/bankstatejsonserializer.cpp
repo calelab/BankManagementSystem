@@ -1,3 +1,4 @@
+// JSON 序列化实现：完整保存对象图，并在加载时拒绝缺失、越界或矛盾数据。
 #include "persistence/bankstatejsonserializer.h"
 
 #include <QJsonArray>
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <utility>
 
 namespace bank::persistence {
 namespace {
@@ -316,6 +318,7 @@ QJsonObject serializeTransaction(const Transaction &transaction)
 
 QJsonObject serializeDepositor(const Depositor &depositor)
 {
+    // 一个储户在同一 JSON 对象内嵌多笔独立存款及其完整交易历史。
     QJsonArray deposits;
     for (const FixedDeposit &deposit : depositor.deposits()) {
         deposits.append(serializeDeposit(deposit));
@@ -486,7 +489,7 @@ bool deserializeDepositor(const QJsonValue &value,
         return false;
     }
 
-    // 阶段 2 生成的早期 Schema 1 文件没有该字段，读取时按唯一受支持算法迁移。
+    // 早期 Schema 1 文件没有该字段，读取时按唯一受支持算法兼容迁移。
     if (object.contains(QStringLiteral("passwordKdfAlgorithm"))
         && !readString(object,
                        QStringLiteral("passwordKdfAlgorithm"),
@@ -642,6 +645,7 @@ bool BankStateJsonSerializer::deserialize(const QByteArray &jsonData,
         depositors.append(std::move(depositor));
     }
 
+    // 全部字段与子对象验证完成前只构造局部候选，失败时不污染调用者原状态。
     BankState candidate(schemaVersion,
                         nextAccountSequence,
                         nextDepositSequence,

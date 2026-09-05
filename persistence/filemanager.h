@@ -1,3 +1,4 @@
+// 核心数据文件管理声明：协调 JSON、编码器与原子磁盘写入。
 #ifndef FILEMANAGER_H
 #define FILEMANAGER_H
 

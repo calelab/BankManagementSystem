@@ -1,3 +1,4 @@
+// 金额工具实现：使用整数运算解析与格式化，避免 double 引入分值误差。
 #include "utils/moneyutils.h"
 
 #include <QLocale>
@@ -26,6 +27,7 @@ quint64 magnitudeOf(qint64 value)
 
 std::optional<qint64> parseCents(const QString &text, QString *errorMessage)
 {
+    // 用正则和整数拆分“元.分”，避免先转 double 后出现一分钱误差。
     static const QRegularExpression pattern(
         QStringLiteral("^(0|[1-9][0-9]*)(?:\\.([0-9]{1,2}))?$"));
 

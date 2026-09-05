@@ -1,3 +1,4 @@
+// 计息服务实现：全程使用整数分和基点，避免浮点金额误差及中间值溢出。
 #include "services/interestcalculator.h"
 
 #include "models/fixeddeposit.h"
@@ -43,6 +44,7 @@ std::optional<qint64> roundedPositiveRatio(qint64 value,
         return std::nullopt;
     }
 
+    // 全部利息共用“加半个分母再整除”的正数四舍五入规则，结果直接落到整数分。
     const qint64 roundedRemainder = (*remainderProduct + denominator / 2) / denominator;
     if (*wholePart > std::numeric_limits<qint64>::max() - roundedRemainder) {
         return std::nullopt;
@@ -67,6 +69,7 @@ std::optional<qint64> InterestCalculator::earlyWithdrawalInterest(
         return std::nullopt;
     }
 
+    // 提前支取按实际持有天数和活期年利率计算，不使用约定定期利率。
     const qint64 days = startDate.daysTo(withdrawalDate);
     if (days < 0) {
         setError(errorMessage, QStringLiteral("支取日期不能早于存入日期"));
@@ -107,6 +110,7 @@ std::optional<qint64> InterestCalculator::maturedInterest(
         return std::nullopt;
     }
 
+    // 到期利息采用存入时锁定的年利率乘完整期限，不复利也不追加逾期利息。
     const auto interest = roundedPositiveRatio(
         principalCents, *numerator, BasisPointsDenominator);
     if (!interest) {
@@ -138,6 +142,7 @@ std::optional<WithdrawalCalculation> InterestCalculator::withdrawal(
     WithdrawalCalculation calculation;
     calculation.principalCents = principalCents;
     std::optional<qint64> interest;
+    // 到期日当天及之后属于正常到期支取；此前统一走提前支取规则。
     if (withdrawalDate < deposit.maturityDate()) {
         calculation.kind = WithdrawalKind::Early;
         interest = earlyWithdrawalInterest(
