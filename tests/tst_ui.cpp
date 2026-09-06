@@ -22,6 +22,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QScrollBar>
 #include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTableView>
@@ -30,6 +31,7 @@
 #include <QTimer>
 
 #include <array>
+#include <cstdlib>
 #include <memory>
 
 using namespace bank;
@@ -73,6 +75,47 @@ bool hasReadableDepositColumns(QTableView *tableView)
         }
     }
     return true;
+}
+
+bool hasReadableReserveColumns(QTableView *tableView)
+{
+    constexpr std::array<int, 5> minimumWidths{115, 90, 120, 120, 120};
+    if (!tableView
+        || tableView->model()->columnCount() != static_cast<int>(minimumWidths.size())) {
+        return false;
+    }
+    for (int column = 0; column < static_cast<int>(minimumWidths.size()); ++column) {
+        if (tableView->columnWidth(column) < minimumWidths.at(column)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int totalColumnWidth(QTableView *tableView)
+{
+    int width = 0;
+    for (int column = 0; column < tableView->model()->columnCount(); ++column) {
+        width += tableView->columnWidth(column);
+    }
+    return width;
+}
+
+bool reserveColumnsFillViewport(QTableView *tableView)
+{
+    return tableView
+           && std::abs(totalColumnWidth(tableView) - tableView->viewport()->width()) <= 1;
+}
+
+bool hasBalancedReserveColumns(QTableView *tableView)
+{
+    if (!tableView || tableView->model()->columnCount() != 5) {
+        return false;
+    }
+    const int totalWidth = totalColumnWidth(tableView);
+    return tableView->columnWidth(1) < tableView->columnWidth(0)
+           && tableView->columnWidth(1) < tableView->columnWidth(2)
+           && tableView->columnWidth(4) * 3 < totalWidth;
 }
 
 } // namespace
@@ -173,6 +216,15 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
     QVERIFY(depositorsTable->columnWidth(5) >= 105);
     QVERIFY(depositorsTable->columnWidth(6) >= 100);
     QVERIFY(depositorsTable->columnWidth(7) >= 135);
+
+    auto *reserveTable = requiredChild<QTableView>(&window, "reserveForecastTableView");
+    auto *reserveHeader = reserveTable->horizontalHeader();
+    QVERIFY(!reserveHeader->stretchLastSection());
+    QCOMPARE(reserveHeader->sectionResizeMode(0), QHeaderView::Interactive);
+    QCOMPARE(reserveHeader->sectionResizeMode(4), QHeaderView::Interactive);
+    QCOMPARE(reserveTable->horizontalScrollMode(), QAbstractItemView::ScrollPerPixel);
+    QVERIFY(!reserveTable->wordWrap());
+    QVERIFY(hasReadableReserveColumns(reserveTable));
 
     auto *auditTable = requiredChild<QTableView>(&window, "auditLogTableView");
     QCOMPARE(auditTable->model()->headerData(3, Qt::Horizontal).toString(),
@@ -586,14 +638,42 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
 
         requiredChild<QPushButton>(&window, "allDepositorsBackButton")->click();
         requiredChild<QPushButton>(&window, "reserveForecastButton")->click();
+        QApplication::processEvents();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("reserveForecastPage"));
         auto *forecastTable = requiredChild<QTableView>(&window, "reserveForecastTableView");
         QCOMPARE(forecastTable->model()->rowCount(), 3);
+        QVERIFY(!forecastTable->currentIndex().isValid());
+        QVERIFY(hasReadableReserveColumns(forecastTable));
+        QVERIFY(reserveColumnsFillViewport(forecastTable));
+        QVERIFY(hasBalancedReserveColumns(forecastTable));
         requiredChild<QDateEdit>(&window, "forecastBaseDateEdit")
             ->setDate(QDate(2026, 12, 31));
         requiredChild<QPushButton>(&window, "refreshForecastButton")->click();
         QCOMPARE(forecastTable->model()->index(0, 2).data().toString(),
                  QStringLiteral("¥600.00"));
+        QVERIFY(hasReadableReserveColumns(forecastTable));
+        QVERIFY(reserveColumnsFillViewport(forecastTable));
+        QVERIFY(hasBalancedReserveColumns(forecastTable));
+        window.resize(window.width() + 240, window.height());
+        QApplication::processEvents();
+        QVERIFY(hasReadableReserveColumns(forecastTable));
+        QVERIFY(reserveColumnsFillViewport(forecastTable));
+        QVERIFY(hasBalancedReserveColumns(forecastTable));
+        window.resize(window.minimumSize());
+        QApplication::processEvents();
+        QVERIFY(hasReadableReserveColumns(forecastTable));
+        QVERIFY(reserveColumnsFillViewport(forecastTable));
+        QVERIFY(hasBalancedReserveColumns(forecastTable));
+
+        forecastTable->setFixedWidth(500);
+        QApplication::processEvents();
+        QVERIFY(hasReadableReserveColumns(forecastTable));
+        QVERIFY(totalColumnWidth(forecastTable) > forecastTable->viewport()->width());
+        QVERIFY(forecastTable->horizontalScrollBar()->maximum() > 0);
+        const int manuallyAdjustedWidth = forecastTable->columnWidth(0) + 20;
+        forecastTable->setColumnWidth(0, manuallyAdjustedWidth);
+        QApplication::processEvents();
+        QCOMPARE(forecastTable->columnWidth(0), manuallyAdjustedWidth);
         requiredChild<QAction>(&window, "actionReturnWorkspace")->trigger();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("workspacePage"));
 

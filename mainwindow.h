@@ -9,6 +9,7 @@
 #include <memory>
 
 QT_BEGIN_NAMESPACE
+class QEvent;
 class QLabel;
 class QStandardItemModel;
 namespace Ui {
@@ -26,6 +27,9 @@ public:
     explicit MainWindow(std::unique_ptr<bank::BankService> service,
                         QWidget *parent = nullptr);
     ~MainWindow() override;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     // 信号槽只负责收集输入和刷新展示，所有业务判断由 BankService 完成。

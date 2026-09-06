@@ -13,11 +13,13 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QDialog>
+#include <QEvent>
 #include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QMessageBox>
 #include <QRegularExpression>
+#include <QResizeEvent>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStatusBar>
@@ -142,37 +144,72 @@ QString auditFailureReasonText(const QString &reasonCode)
     return QStringLiteral("操作失败");
 }
 
-void prepareTable(QTableView *tableView)
+struct ColumnWidthRange {
+    int minimum;
+    int maximum;
+};
+
+template<std::size_t ColumnCount>
+void resizeTableColumnsWithinRanges(
+    QTableView *tableView,
+    const std::array<ColumnWidthRange, ColumnCount> &widthRanges,
+    const std::array<int, ColumnCount> &remainingWidthWeights = {})
 {
-    tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    tableView->horizontalHeader()->setStretchLastSection(true);
-    tableView->verticalHeader()->setVisible(false);
+    // maximum 只限制内容测量得到的基础宽度；可选权重负责把 viewport 余量均衡分配。
+    tableView->resizeColumnsToContents();
+    int currentWidth = 0;
+    int totalWeight = 0;
+    int lastWeightedColumn = -1;
+    for (int column = 0; column < static_cast<int>(widthRanges.size()); ++column) {
+        const ColumnWidthRange range = widthRanges.at(column);
+        const int width = std::clamp(tableView->columnWidth(column),
+                                     range.minimum,
+                                     range.maximum);
+        tableView->setColumnWidth(column, width);
+        currentWidth += tableView->columnWidth(column);
+        if (remainingWidthWeights.at(column) > 0) {
+            totalWeight += remainingWidthWeights.at(column);
+            lastWeightedColumn = column;
+        }
+    }
+
+    const int remainingWidth = tableView->viewport()->width() - currentWidth;
+    if (remainingWidth <= 0 || totalWeight <= 0) {
+        return;
+    }
+
+    int distributedWidth = 0;
+    for (int column = 0; column < static_cast<int>(widthRanges.size()); ++column) {
+        const int weight = remainingWidthWeights.at(column);
+        if (weight <= 0) {
+            continue;
+        }
+        const int extraWidth = remainingWidth * weight / totalWeight;
+        tableView->setColumnWidth(column, tableView->columnWidth(column) + extraWidth);
+        distributedWidth += extraWidth;
+    }
+    if (lastWeightedColumn >= 0) {
+        tableView->setColumnWidth(
+            lastWeightedColumn,
+            tableView->columnWidth(lastWeightedColumn)
+                + remainingWidth - distributedWidth);
+    }
 }
 
 void resizeDepositTableColumns(QTableView *tableView)
 {
     // 数据从空表变为有行时重新测量，并夹在可读范围内，避免等到点击表头才布局。
-    struct WidthRange {
-        int minimum;
-        int maximum;
-    };
-    constexpr std::array<WidthRange, 8> widthRanges{
-        WidthRange{120, 150},
-        WidthRange{115, 145},
-        WidthRange{115, 145},
-        WidthRange{100, 140},
-        WidthRange{90, 110},
-        WidthRange{115, 130},
-        WidthRange{115, 130},
-        WidthRange{85, 110}};
+    constexpr std::array<ColumnWidthRange, 8> widthRanges{
+        ColumnWidthRange{120, 150},
+        ColumnWidthRange{115, 145},
+        ColumnWidthRange{115, 145},
+        ColumnWidthRange{100, 140},
+        ColumnWidthRange{90, 110},
+        ColumnWidthRange{115, 130},
+        ColumnWidthRange{115, 130},
+        ColumnWidthRange{85, 110}};
 
-    tableView->resizeColumnsToContents();
-    for (int column = 0; column < static_cast<int>(widthRanges.size()); ++column) {
-        const WidthRange range = widthRanges.at(column);
-        tableView->setColumnWidth(
-            column,
-            std::clamp(tableView->columnWidth(column), range.minimum, range.maximum));
-    }
+    resizeTableColumnsWithinRanges(tableView, widthRanges);
 }
 
 void prepareDepositTable(QTableView *tableView)
@@ -188,10 +225,10 @@ void prepareDepositTable(QTableView *tableView)
 
 void prepareTransactionTable(QTableView *tableView)
 {
-    prepareTable(tableView);
     QHeaderView *header = tableView->horizontalHeader();
     header->setStretchLastSection(false);
     header->setSectionResizeMode(QHeaderView::Interactive);
+    tableView->verticalHeader()->setVisible(false);
 
     // 交易字段较固定，保留可拖动宽度并让营业员列吸收窗口剩余空间。
     constexpr std::array<int, 8> columnWidths{150, 180, 150, 110, 115, 115, 115, 90};
@@ -216,30 +253,45 @@ void prepareDepositorTable(QTableView *tableView)
     header->setSectionResizeMode(2, QHeaderView::Stretch);
 }
 
+void resizeReserveTableColumns(QTableView *tableView)
+{
+    // 日期与金额列适度扩展，笔数列较窄；不足时保留最小宽度并由滚动条承载。
+    constexpr std::array<ColumnWidthRange, 5> widthRanges{
+        ColumnWidthRange{115, 135},
+        ColumnWidthRange{90, 110},
+        ColumnWidthRange{120, 150},
+        ColumnWidthRange{120, 150},
+        ColumnWidthRange{120, 160}};
+    constexpr std::array<int, 5> remainingWidthWeights{2, 1, 2, 2, 2};
+
+    resizeTableColumnsWithinRanges(tableView, widthRanges, remainingWidthWeights);
+}
+
+void prepareReserveTable(QTableView *tableView)
+{
+    QHeaderView *header = tableView->horizontalHeader();
+    header->setStretchLastSection(false);
+    header->setSectionResizeMode(QHeaderView::Interactive);
+    tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    tableView->setWordWrap(false);
+    tableView->verticalHeader()->setVisible(false);
+    resizeReserveTableColumns(tableView);
+}
+
 void resizeAuditTableColumns(QTableView *tableView)
 {
     // 审计内容长度差异大，动态测量后限幅，防止失败原因独占整个表格。
-    struct WidthRange {
-        int minimum;
-        int maximum;
-    };
-    constexpr std::array<WidthRange, 8> widthRanges{
-        WidthRange{170, 190},
-        WidthRange{70, 85},
-        WidthRange{100, 120},
-        WidthRange{110, 140},
-        WidthRange{95, 115},
-        WidthRange{95, 115},
-        WidthRange{65, 80},
-        WidthRange{300, 320}};
+    constexpr std::array<ColumnWidthRange, 8> widthRanges{
+        ColumnWidthRange{170, 190},
+        ColumnWidthRange{70, 85},
+        ColumnWidthRange{100, 120},
+        ColumnWidthRange{110, 140},
+        ColumnWidthRange{95, 115},
+        ColumnWidthRange{95, 115},
+        ColumnWidthRange{65, 80},
+        ColumnWidthRange{300, 320}};
 
-    tableView->resizeColumnsToContents();
-    for (int column = 0; column < static_cast<int>(widthRanges.size()); ++column) {
-        const WidthRange range = widthRanges.at(column);
-        tableView->setColumnWidth(
-            column,
-            std::clamp(tableView->columnWidth(column), range.minimum, range.maximum));
-    }
+    resizeTableColumnsWithinRanges(tableView, widthRanges);
 }
 
 void prepareAuditTable(QTableView *tableView)
@@ -281,7 +333,20 @@ MainWindow::MainWindow(std::unique_ptr<bank::BankService> service, QWidget *pare
 
 MainWindow::~MainWindow()
 {
+    ui->reserveForecastTableView->viewport()->removeEventFilter(this);
     delete ui;
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Resize
+        && watched == ui->reserveForecastTableView->viewport()) {
+        const auto *resizeEvent = static_cast<QResizeEvent *>(event);
+        if (resizeEvent->size().width() != resizeEvent->oldSize().width()) {
+            resizeReserveTableColumns(ui->reserveForecastTableView);
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::setupConnections()
@@ -497,7 +562,8 @@ void MainWindow::setupTableModels()
     prepareDepositTable(ui->depositsTableView);
     prepareTransactionTable(ui->transactionsTableView);
     prepareDepositorTable(ui->allDepositorsTableView);
-    prepareTable(ui->reserveForecastTableView);
+    prepareReserveTable(ui->reserveForecastTableView);
+    ui->reserveForecastTableView->viewport()->installEventFilter(this);
     prepareAuditTable(ui->auditLogTableView);
 }
 
@@ -973,6 +1039,7 @@ void MainWindow::refreshReserveForecast()
              textItem(bank::MoneyUtils::formatCents(day.interestCents)),
              textItem(bank::MoneyUtils::formatCents(day.reserveCents))});
     }
+    resizeReserveTableColumns(ui->reserveForecastTableView);
     ui->threeDayReserveTotalLabel->setText(
         QStringLiteral("三日预计备款总计：%1")
             .arg(bank::MoneyUtils::formatCents(result.totalReserveCents)));
