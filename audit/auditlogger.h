@@ -23,7 +23,7 @@ struct AuditAppendResult {
     QString errorMessage;
 };
 
-// AuditLogger 按营业员保存独立日志，并与核心数据共享当前构建选定的编码器。
+// AuditLogger 按营业员保存独立日志，并与核心数据共享 JSON 编码器。
 class AuditLogger
 {
 public:
@@ -39,7 +39,7 @@ public:
     AuditAppendResult append(const AuditRecord &record) const;
 
 private:
-    // 序列化层保存稳定机器码；DataCodec 决定日志是加密文件还是兼容 JSON。
+    // 序列化层以 JSON 保存稳定机器码，编码器保持文件读写边界。
     bool ensureAuditDirectory(QString *errorMessage) const;
     bool serialize(const QVector<AuditRecord> &records,
                    QByteArray *plainJson,

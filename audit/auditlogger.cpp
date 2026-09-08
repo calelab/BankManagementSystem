@@ -1,4 +1,4 @@
-// 审计日志实现：严格校验日志对象，并以当前存储编码原子更新独立文件。
+// 审计日志实现：严格校验日志对象，并以 JSON 原子更新独立文件。
 #include "audit/auditlogger.h"
 
 #include "persistence/employeefilemanager.h"
@@ -170,7 +170,7 @@ AuditLogger::AuditLogger(QString dataDirectory,
     , codec_(std::move(codec))
 {
     if (!codec_) {
-        codec_ = persistence::createDefaultDataCodec(dataDirectory_);
+        codec_ = std::make_shared<persistence::PlainJsonCodec>();
     }
 }
 
@@ -189,9 +189,6 @@ AuditLoadResult AuditLogger::loadForEmployee(const QString &employeeId) const
     const QString path = filePathForEmployee(employeeId);
     if (path.isEmpty()) {
         result.errorMessage = QStringLiteral("营业员工号格式无效");
-        return result;
-    }
-    if (!codec_->initialize(&result.errorMessage)) {
         return result;
     }
     // 尚无日志是正常空结果；已有文件一旦损坏则必须明确失败。
@@ -229,7 +226,7 @@ AuditAppendResult AuditLogger::append(const AuditRecord &record) const
         return result;
     }
 
-    // GCM 密文不能安全地原地尾追加，小规模课程日志采用“读全量、追加、原子重写”。
+    // 读取完整 JSON 日志、追加记录，再原子重写，避免留下不完整的日志。
     const AuditLoadResult existing = loadForEmployee(record.employeeId());
     if (!existing.success) {
         result.errorMessage = existing.errorMessage;

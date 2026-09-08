@@ -1056,7 +1056,7 @@ void BankService::appendAudit(ServiceResult *status,
                                  ? QStringLiteral("业务已完成，审计日志保存失败：%1")
                                        .arg(errorMessage)
                                  : QStringLiteral("审计日志保存失败：%1").arg(errorMessage);
-    // 运行日志只记录动作和非敏感错误，不输出密码、哈希、Salt 或主密钥。
+    // 运行日志只记录动作和非敏感错误，不输出密码、哈希或 Salt。
     qWarning().noquote() << QStringLiteral("审计日志写入失败 [%1]：%2")
                                 .arg(action, errorMessage);
 }

@@ -15,7 +15,7 @@ enum class AuditResult {
     Warning
 };
 
-// AuditRecord 只保存可追踪的业务事实，严禁包含密码、哈希、Salt 或主密钥。
+// AuditRecord 只保存可追踪的业务事实，严禁包含密码、哈希或 Salt。
 class AuditRecord
 {
 public:

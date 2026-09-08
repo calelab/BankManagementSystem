@@ -7,22 +7,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Network Widgets Test)
 
-option(BANK_ENABLE_ENCRYPTION "Enable AES-256-GCM file encryption" ON)
-set(BANK_OPENSSL_AVAILABLE OFF)
-if(BANK_ENABLE_ENCRYPTION)
-    find_package(OpenSSL QUIET COMPONENTS Crypto)
-    if(TARGET OpenSSL::Crypto)
-        set(BANK_OPENSSL_AVAILABLE ON)
-        message(STATUS "Bank storage: OpenSSL Crypto found; AES-256-GCM enabled")
-    else()
-        message(WARNING
-            "Bank storage: OpenSSL Crypto not found; using separate plain JSON compatibility files")
-    endif()
-else()
-    message(STATUS
-        "Bank storage: encryption explicitly disabled; using separate plain JSON compatibility files")
-endif()
-
 qt_standard_project_setup()
 
 qt_add_library(BankDomain STATIC
@@ -92,14 +76,6 @@ target_link_libraries(BankSecurity
         Qt::Core
         Qt::Network
 )
-
-if(BANK_OPENSSL_AVAILABLE)
-    target_link_libraries(BankSecurity PUBLIC OpenSSL::Crypto)
-    target_compile_definitions(BankSecurity PUBLIC BANK_HAS_OPENSSL=1)
-endif()
-
-# DataCodec 只依赖 SecurityUtils 的成熟密码学封装，业务层接口保持不变。
-target_link_libraries(BankPersistence PUBLIC BankSecurity)
 
 qt_add_library(BankAudit STATIC
     audit/auditlogger.cpp

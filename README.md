@@ -1,96 +1,54 @@
 # 银行储蓄管理系统
 
-这是一个使用 C++17、Qt Widgets 和 CMake 实现的课程设计项目。系统以储户账户为聚合边界，支持多笔独立定期存款、存取款计息、挂失、查询、未来三日备款和按营业员审计。OpenSSL 可用时，核心业务数据与审计日志默认使用 AES-256-GCM 加密保存。
+本项目是一个基于桌面界面的银行储蓄管理课程设计，用于模拟储户开户、定期存取款和营业员日常查询等业务。
 
-## 环境要求
+## 使用技术
 
-- CMake 3.19 或更高版本；
-- Qt 6.5 或更高版本，当前验收环境为 Qt 6.11.2；
-- 支持 C++17 的编译器；
-- OpenSSL 3（正式加密模式需要，无 OpenSSL 时可使用独立明文兼容模式）。
+C++17、Qt Widgets、CMake；使用 JSON 文件持久化保存数据。
 
-macOS 使用 Homebrew 时可安装 OpenSSL：
+## 主要功能
 
-```bash
-brew install openssl@3
-```
+- 储户开户与登录，资料和密码修改，挂失与解除挂失。
+- 支持 1 年、3 年、5 年定期存款，一个储户可持有多笔独立存款。
+- 支持提前支取与到期支取，计算本金、利息和实际支付金额。
+- 查看全部储户，按账号、姓名和挂失状态进行条件查询。
+- 查询储户交易记录，统计未来三日到期存款的备款金额。
+- 按营业员记录和查询审计日志。
+- 使用 JSON 文件持久化保存数据，并通过原子写入保护已有文件。
 
-## 默认加密构建
+## 运行环境
 
-将 `QT_ROOT` 替换为本机 Qt 安装目录，例如 Qt 安装器中的 `6.11.2/macos`：
+需要 Qt 6.5 或更高版本（含 Widgets、Network 和 Test 模块）、CMake 3.19 或更高版本，以及支持 C++17 的编译器。建议使用 Qt Creator 打开项目。
 
-```bash
-export QT_ROOT=/path/to/Qt/6.11.2/macos
-cmake -S . -B build \
-  -DCMAKE_PREFIX_PATH="$QT_ROOT" \
-  -DBANK_ENABLE_ENCRYPTION=ON \
-  -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-```
+## 构建与运行
 
-配置输出应包含 `AES-256-GCM enabled`。若找不到 OpenSSL，CMake 会给出明确警告并编译明文兼容模式；该回退不会使用或覆盖加密文件。
+1. 在 Qt Creator 中打开根目录的 `CMakeLists.txt`。
+2. 选择已配置的 Qt 6 桌面构建套件（Kit），设置构建目录并完成 CMake 配置。
+3. 构建项目，选择 `BankManagementSystem` 运行目标并启动。
 
-macOS 可直接运行：
+首次运行会生成 `E01` 至 `E10` 的营业员工号。输入有效工号进入工作台后，可办理开户、储户登录及其他业务。
 
-```bash
-./build/BankManagementSystem.app/Contents/MacOS/BankManagementSystem
-```
+## 主要源码目录
 
-程序启动日志会显示当前是 `AES-256-GCM 加密模式` 还是 `明文 JSON 兼容模式`。首次运行会生成营业员工号 `E01` 至 `E10`，选择任一有效工号即可进入工作台。
+- `models/`：储户、定期存款、交易和银行数据模型。
+- `services/`：账户业务、查询统计和利息计算。
+- `persistence/`：数据序列化及文件读写。
+- `security/`：随机 salt、密码派生和密码摘要验证。
+- `audit/`：营业员审计日志。
+- `ui/`：业务对话框及其 Qt Designer 界面。
+- `utils/`：金额解析与格式化工具。
+- `tests/`：各模块的自动化测试。
 
-## 无 OpenSSL 兼容构建
+根目录的 `main.cpp` 是程序入口，`mainwindow.h/.cpp/.ui` 定义主窗口及其交互。
 
-兼容构建显式关闭加密，使用独立构建目录和 `bank_data.json`、`*.audit.json` 文件：
+## 数据保存
 
-```bash
-cmake -S . -B build-plain \
-  -DCMAKE_PREFIX_PATH="$QT_ROOT" \
-  -DBANK_ENABLE_ENCRYPTION=OFF
-cmake --build build-plain --parallel
-ctest --test-dir build-plain --output-on-failure
-```
+运行数据默认保存在系统应用数据目录中，具体位置由 Qt 的 `QStandardPaths::AppDataLocation` 确定。银行数据保存为 `bank_data.json`，审计日志按营业员分别保存为 `audit/<营业员工号>.audit.json`，营业员清单保存在 `employees.dat`。银行数据与审计日志均经过 JSON 校验，并通过 `QSaveFile` 原子保存；读取失败或 JSON 损坏时会报告错误。请勿将真实业务数据或审计数据提交到仓库。
 
-加密模式使用 `bank_data.enc` 和 `*.audit.enc`，两种模式的文件不会互相覆盖。兼容模式只用于缺少 OpenSSL 的构建环境和开发排错，不代表数据已加密。
+## 密码安全
 
-## 严格警告构建
+用户密码不以明文保存。系统使用 Qt 系统随机源生成独立的 16 字节 salt，通过 PBKDF2-HMAC-SHA256、210000 次迭代派生 32 字节密码摘要。JSON 保存 `passwordSalt`、`passwordHash` 和密码派生参数；登录时重新派生摘要并进行恒定时间比较。修改密码会生成新的 salt 和摘要，连续五次登录失败会锁定账户 60 秒。
 
-可使用单独目录把常见编译警告提升为错误：
+## 自动测试
 
-```bash
-cmake -S . -B build-strict \
-  -DCMAKE_PREFIX_PATH="$QT_ROOT" \
-  -DBANK_ENABLE_ENCRYPTION=ON \
-  -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
-  -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic -Werror"
-cmake --build build-strict --parallel
-ctest --test-dir build-strict --output-on-failure
-```
-
-## 数据与主密钥
-
-正式运行数据位于 Qt `QStandardPaths::AppDataLocation` 返回的平台应用数据目录，而不是源码目录。逻辑结构如下：
-
-```text
-BankManagementSystemData/
-├── bank_data.enc
-├── employees.dat
-├── config/master.key
-└── audit/E01.audit.enc
-```
-
-启用加密时，`config/master.key` 是随机生成的 32 字节主密钥。`master.key`、`bank_data.enc` 和所有 `audit/*.audit.enc` 必须作为一个整体备份和迁移；缺少原主密钥时，系统会拒绝读取既有密文，也不会生成替代密钥覆盖数据。`employees.dat` 不依赖主密钥，但整目录备份更不容易遗漏文件。
-
-主密钥管理属于课程展示级本地方案，不等同于生产银行系统的密钥托管。不要提交、分享或输出真实主密钥、业务数据、审计日志及真实密码。
-
-## 项目结构
-
-- `models/`：储户、定期存款、交易、审计记录和银行状态聚合；
-- `services/`：核心业务编排与统一计息；
-- `persistence/`：严格 JSON、编码边界和原子文件写入；
-- `security/`：PBKDF2、随机数、AES-256-GCM 和主密钥；
-- `audit/`：按营业员隔离的审计日志；
-- `ui/`、`mainwindow.*`：Designer 界面、对话框和业务连接；
-- `tests/`：领域、持久化、审计、服务和 UI 自动测试。
-
-详细业务规则、文件格式、安全边界及验收资料见 [课程设计说明](docs/course-design-summary.md) 和 [最终人工验收清单](docs/manual-acceptance-checklist.md)。
+构建后在构建目录运行 `ctest --output-on-failure`。测试覆盖 JSON 保存与恢复、数据校验、原子写入失败保护、密码验证、登录限制、存取款、挂失与解挂、查询、审计、计息和未来三天备款；UI 测试通过实际控件验证业务流程与重启恢复。测试使用临时数据目录，不接触真实业务数据。

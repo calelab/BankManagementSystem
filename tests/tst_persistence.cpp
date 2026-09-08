@@ -1,9 +1,8 @@
-// 持久化测试：覆盖 JSON 约束、原子写入、加密往返、篡改和模式隔离。
+// 持久化测试：覆盖 JSON 往返、数据约束与原子写入失败保护。
 #include "models/bankstate.h"
 #include "persistence/bankstatejsonserializer.h"
 #include "persistence/datacodec.h"
 #include "persistence/filemanager.h"
-#include "security/securityutils.h"
 
 #include <QDir>
 #include <QFile>
@@ -89,22 +88,6 @@ QByteArray readFile(const QString &path)
     return file.readAll();
 }
 
-#ifdef BANK_HAS_OPENSSL
-void writeFile(const QString &path, const QByteArray &contents)
-{
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)
-        || file.write(contents) != contents.size()) {
-        qFatal("无法写入测试文件：%s", qPrintable(file.errorString()));
-    }
-}
-#endif
-
-std::shared_ptr<const DataCodec> plainCodec()
-{
-    return std::make_shared<PlainJsonCodec>();
-}
-
 // 该测试编码器模拟编码阶段失败，用于验证旧文件不会被覆盖。
 class RejectingCodec final : public DataCodec
 {
@@ -117,11 +100,6 @@ public:
     QString auditFileSuffix() const override
     {
         return QStringLiteral(".audit.json");
-    }
-
-    QString displayName() const override
-    {
-        return QStringLiteral("故障注入编码器");
     }
 
     bool encode(const QByteArray &, QByteArray *, QString *errorMessage) const override
@@ -159,10 +137,6 @@ private slots:
     void preservesFullWidthIntegerPrecision();
     void savesAndLoadsThroughInjectedDirectory();
     void initializesEmptyStateWhenFileIsMissing();
-    void selectsDefaultStorageModeAndIsolatesFiles();
-    void encryptedRoundTripUsesFreshNonce();
-    void encryptedTamperingIsRejectedWithoutOverwrite();
-    void missingMasterKeyRejectsExistingCiphertext();
     void rejectsMalformedOrUnsupportedJson_data();
     void rejectsMalformedOrUnsupportedJson();
     void rejectsBrokenDomainConstraintsWithoutChangingOutput();
@@ -264,12 +238,18 @@ void PersistenceTest::savesAndLoadsThroughInjectedDirectory()
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
     const QString dataDirectory = QDir(temporaryRoot.path()).filePath(QStringLiteral("nested/data"));
-    const FileManager manager(dataDirectory, plainCodec());
+    const FileManager manager(dataDirectory);
 
     const FileSaveResult saveResult = manager.save(makeState());
     QVERIFY2(saveResult.success, qPrintable(saveResult.errorMessage));
     QCOMPARE(QFileInfo(manager.dataFilePath()).fileName(), QStringLiteral("bank_data.json"));
     QVERIFY(QFileInfo::exists(manager.dataFilePath()));
+    const QByteArray diskJson = readFile(manager.dataFilePath());
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(diskJson, &parseError);
+    QCOMPARE(parseError.error, QJsonParseError::NoError);
+    QVERIFY(document.isObject());
+    QCOMPARE(diskJson, serializeState(makeState()));
 
     const FileLoadResult loadResult = manager.load();
     QVERIFY2(loadResult.success, qPrintable(loadResult.errorMessage));
@@ -285,7 +265,7 @@ void PersistenceTest::initializesEmptyStateWhenFileIsMissing()
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
     const QString dataDirectory = QDir(temporaryRoot.path()).filePath(QStringLiteral("first-run"));
-    const FileManager manager(dataDirectory, plainCodec());
+    const FileManager manager(dataDirectory);
 
     const FileLoadResult result = manager.load();
     QVERIFY2(result.success, qPrintable(result.errorMessage));
@@ -294,133 +274,6 @@ void PersistenceTest::initializesEmptyStateWhenFileIsMissing()
     QCOMPARE(result.state.nextAccountSequence(), quint64(1));
     QVERIFY(QFileInfo(dataDirectory).isDir());
     QVERIFY(!QFileInfo::exists(manager.dataFilePath()));
-}
-
-void PersistenceTest::selectsDefaultStorageModeAndIsolatesFiles()
-{
-    // 同一目录中的加密文件和兼容 JSON 使用不同名称，切换构建模式不会覆盖对方。
-    QTemporaryDir temporaryRoot;
-    QVERIFY(temporaryRoot.isValid());
-    const FileManager defaultManager(temporaryRoot.path());
-
-#ifdef BANK_HAS_OPENSSL
-    QVERIFY(defaultEncryptionEnabled());
-    QVERIFY(security::SecurityUtils::aes256GcmAvailable());
-    QCOMPARE(QFileInfo(defaultManager.dataFilePath()).fileName(),
-             QStringLiteral("bank_data.enc"));
-    QVERIFY(defaultManager.save(makeState()).success);
-    const QByteArray encryptedBeforePlainSave = readFile(defaultManager.dataFilePath());
-
-    const FileManager compatibilityManager(temporaryRoot.path(), plainCodec());
-    QCOMPARE(QFileInfo(compatibilityManager.dataFilePath()).fileName(),
-             QStringLiteral("bank_data.json"));
-    QVERIFY(compatibilityManager.save(makeState()).success);
-    QVERIFY(QFileInfo::exists(defaultManager.dataFilePath()));
-    QVERIFY(QFileInfo::exists(compatibilityManager.dataFilePath()));
-    QCOMPARE(readFile(defaultManager.dataFilePath()), encryptedBeforePlainSave);
-
-    const QByteArray plainBeforeEncryptedSave = readFile(compatibilityManager.dataFilePath());
-    BankState changed = makeState();
-    changed.issueAccountNumber();
-    QVERIFY(defaultManager.save(changed).success);
-    QCOMPARE(readFile(compatibilityManager.dataFilePath()), plainBeforeEncryptedSave);
-#else
-    QVERIFY(!defaultEncryptionEnabled());
-    QVERIFY(!security::SecurityUtils::aes256GcmAvailable());
-    QCOMPARE(QFileInfo(defaultManager.dataFilePath()).fileName(),
-             QStringLiteral("bank_data.json"));
-    QVERIFY(defaultManager.save(makeState()).success);
-    QVERIFY(!QFileInfo::exists(
-        QDir(temporaryRoot.path()).filePath(QStringLiteral("bank_data.enc"))));
-    QVERIFY(!QFileInfo::exists(
-        security::SecurityUtils::masterKeyPath(temporaryRoot.path())));
-#endif
-}
-
-void PersistenceTest::encryptedRoundTripUsesFreshNonce()
-{
-    // 同一明文连续保存应产生不同密文，同时可用同一主密钥正确恢复。
-#ifndef BANK_HAS_OPENSSL
-    QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
-#else
-    QTemporaryDir temporaryRoot;
-    QVERIFY(temporaryRoot.isValid());
-    const FileManager manager(temporaryRoot.path());
-    const FileLoadResult firstLoad = manager.load();
-    QVERIFY2(firstLoad.success, qPrintable(firstLoad.errorMessage));
-    QVERIFY(firstLoad.initializedEmptyState);
-
-    const QString keyPath = security::SecurityUtils::masterKeyPath(temporaryRoot.path());
-    QVERIFY(QFileInfo::exists(keyPath));
-    QCOMPARE(readFile(keyPath).size(), security::SecurityUtils::AesKeySize);
-#ifdef Q_OS_UNIX
-    const QFileDevice::Permissions permissions = QFileInfo(keyPath).permissions();
-    QVERIFY(!(permissions & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
-                             | QFileDevice::ExeGroup | QFileDevice::ReadOther
-                             | QFileDevice::WriteOther | QFileDevice::ExeOther)));
-#endif
-
-    QVERIFY(manager.save(makeState()).success);
-    const QByteArray firstCiphertext = readFile(manager.dataFilePath());
-    QVERIFY(!firstCiphertext.contains(QStringLiteral("张三").toUtf8()));
-    QVERIFY(!firstCiphertext.contains(QStringLiteral("上海市浦东新区").toUtf8()));
-    QVERIFY(!firstCiphertext.contains("schemaVersion"));
-
-    QVERIFY(manager.save(makeState()).success);
-    const QByteArray secondCiphertext = readFile(manager.dataFilePath());
-    QVERIFY(firstCiphertext != secondCiphertext);
-
-    const FileManager restarted(temporaryRoot.path());
-    const FileLoadResult restored = restarted.load();
-    QVERIFY2(restored.success, qPrintable(restored.errorMessage));
-    QCOMPARE(serializeState(restored.state), serializeState(makeState()));
-#endif
-}
-
-void PersistenceTest::encryptedTamperingIsRejectedWithoutOverwrite()
-{
-    // 修改任意密文字节都应触发 GCM 认证失败，且加载过程不得重写原文件。
-#ifndef BANK_HAS_OPENSSL
-    QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
-#else
-    QTemporaryDir temporaryRoot;
-    QVERIFY(temporaryRoot.isValid());
-    const FileManager writer(temporaryRoot.path());
-    QVERIFY(writer.save(makeState()).success);
-    QByteArray tampered = readFile(writer.dataFilePath());
-    QVERIFY(tampered.size() > 48);
-    tampered[tampered.size() - 1] = static_cast<char>(tampered.back() ^ 0x01);
-    writeFile(writer.dataFilePath(), tampered);
-
-    const FileManager reader(temporaryRoot.path());
-    const FileLoadResult result = reader.load();
-    QVERIFY(!result.success);
-    QVERIFY(result.errorMessage.contains(QStringLiteral("认证失败")));
-    QCOMPARE(readFile(writer.dataFilePath()), tampered);
-#endif
-}
-
-void PersistenceTest::missingMasterKeyRejectsExistingCiphertext()
-{
-    // 已有密文缺少 master.key 时必须保护性失败，不能生成新密钥或空数据。
-#ifndef BANK_HAS_OPENSSL
-    QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
-#else
-    QTemporaryDir temporaryRoot;
-    QVERIFY(temporaryRoot.isValid());
-    const FileManager writer(temporaryRoot.path());
-    QVERIFY(writer.save(makeState()).success);
-    const QByteArray encryptedData = readFile(writer.dataFilePath());
-    const QString keyPath = security::SecurityUtils::masterKeyPath(temporaryRoot.path());
-    QVERIFY(QFile::remove(keyPath));
-
-    const FileManager reader(temporaryRoot.path());
-    const FileLoadResult result = reader.load();
-    QVERIFY(!result.success);
-    QVERIFY(result.errorMessage.contains(QStringLiteral("主密钥缺失")));
-    QVERIFY(!QFileInfo::exists(keyPath));
-    QCOMPARE(readFile(writer.dataFilePath()), encryptedData);
-#endif
 }
 
 void PersistenceTest::rejectsMalformedOrUnsupportedJson_data()
@@ -505,7 +358,7 @@ void PersistenceTest::rejectsInvalidDiskDataWithoutOverwritingIt()
 {
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
-    const FileManager manager(temporaryRoot.path(), plainCodec());
+    const FileManager manager(temporaryRoot.path());
     const QByteArray invalidData("{\"schemaVersion\":1,\"depositors\":BROKEN}");
     QFile file(manager.dataFilePath());
     QVERIFY(file.open(QIODevice::WriteOnly));
@@ -522,7 +375,7 @@ void PersistenceTest::rejectsInvalidStateBeforeCreatingFile()
 {
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
-    const FileManager manager(temporaryRoot.path(), plainCodec());
+    const FileManager manager(temporaryRoot.path());
     const BankState invalidState(99, 1, 1, 1);
 
     const FileSaveResult result = manager.save(invalidState);
@@ -536,10 +389,10 @@ void PersistenceTest::codecFailurePreservesExistingFileAndMemory()
     // 故障注入验证编码失败发生在 QSaveFile 之前，旧文件与内存状态均不受影响。
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
-    const FileManager plainManager(temporaryRoot.path(), plainCodec());
+    const FileManager jsonManager(temporaryRoot.path());
     const BankState currentState = makeState();
-    QVERIFY(plainManager.save(currentState).success);
-    const QByteArray originalFile = readFile(plainManager.dataFilePath());
+    QVERIFY(jsonManager.save(currentState).success);
+    const QByteArray originalFile = readFile(jsonManager.dataFilePath());
 
     BankState candidate = makeState();
     candidate.issueAccountNumber();
@@ -548,7 +401,7 @@ void PersistenceTest::codecFailurePreservesExistingFileAndMemory()
 
     QVERIFY(!result.success);
     QVERIFY(result.errorMessage.contains(QStringLiteral("编码失败")));
-    QCOMPARE(readFile(plainManager.dataFilePath()), originalFile);
+    QCOMPARE(readFile(jsonManager.dataFilePath()), originalFile);
     QCOMPARE(currentState.nextAccountSequence(), quint64(2));
     QCOMPARE(candidate.nextAccountSequence(), quint64(3));
 }
@@ -559,7 +412,7 @@ void PersistenceTest::atomicWriteFailurePreservesExistingFile()
 #ifdef Q_OS_UNIX
     QTemporaryDir temporaryRoot;
     QVERIFY(temporaryRoot.isValid());
-    const FileManager manager(temporaryRoot.path(), plainCodec());
+    const FileManager manager(temporaryRoot.path());
     QVERIFY(manager.save(makeState()).success);
     const QByteArray originalFile = readFile(manager.dataFilePath());
 
@@ -589,7 +442,7 @@ void PersistenceTest::rejectsDataDirectoryThatIsAFile()
     QCOMPARE(file.write("occupied"), qint64(8));
     file.close();
 
-    const FileManager manager(path, plainCodec());
+    const FileManager manager(path);
     const FileSaveResult saveResult = manager.save(makeState());
     QVERIFY(!saveResult.success);
     QVERIFY(saveResult.errorMessage.contains(QStringLiteral("不是文件夹")));

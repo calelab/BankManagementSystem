@@ -26,7 +26,7 @@ struct WithdrawalCalculation {
 class InterestCalculator
 {
 public:
-    // 利率使用万分之一基点，提前支取按 365 天折算实际存款天数。
+    // 利率使用整数基点：1 基点 = 0.01%，100 基点 = 1%；提前支取按 365 天折算实际存款天数。
     static constexpr int EarlyWithdrawalRateBasisPoints = 5;
     static constexpr qint64 BasisPointsDenominator = 10000;
     static constexpr qint64 DaysPerYear = 365;

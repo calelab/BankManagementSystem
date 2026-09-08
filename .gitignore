@@ -5,6 +5,7 @@ cmake-build-*/
 # Qt Creator user settings
 *.user
 *.user.*
+CMakeUserPresets.json
 
 # CMake generated files
 CMakeCache.txt
@@ -23,9 +24,6 @@ build-*/
 
 # Runtime application data
 BankManagementSystemData/
-
-# Encrypted business and audit data
-*.enc
-
-# Local encryption key
-master.key
+bank_data.json
+employees.dat
+*.audit.json

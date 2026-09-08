@@ -16,7 +16,12 @@
 #include <QComboBox>
 #include <QDateEdit>
 #include <QDialog>
+#include <QDir>
+#include <QFile>
 #include <QHeaderView>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -735,6 +740,56 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QCOMPARE(requiredChild<QLabel>(&window, "accountNumberLabel")->text(),
                  QStringLiteral("账号：—"));
     }
+
+    // 窗口关闭后直接解析正式 JSON 文件，验证密码仅以派生凭据保存。
+    QFile bankFile(QDir(temporaryDirectory.path()).filePath(QStringLiteral("bank_data.json")));
+    QVERIFY(bankFile.open(QIODevice::ReadOnly));
+    const QByteArray bankJson = bankFile.readAll();
+    bankFile.close();
+    QJsonParseError parseError;
+    const QJsonDocument bankDocument = QJsonDocument::fromJson(bankJson, &parseError);
+    QCOMPARE(parseError.error, QJsonParseError::NoError);
+    QVERIFY(bankDocument.isObject());
+    const QJsonArray savedDepositors = bankDocument.object()
+                                          .value(QStringLiteral("depositors")).toArray();
+    QCOMPARE(savedDepositors.size(), 1);
+    const QJsonObject savedDepositor = savedDepositors.first().toObject();
+    QCOMPARE(savedDepositor.value(QStringLiteral("accountNumber")).toString(),
+             QStringLiteral("100001"));
+    QVERIFY(!savedDepositor.contains(QStringLiteral("password")));
+    const QByteArray savedSalt = QByteArray::fromBase64(
+        savedDepositor.value(QStringLiteral("passwordSalt")).toString().toLatin1());
+    const QByteArray savedHash = QByteArray::fromBase64(
+        savedDepositor.value(QStringLiteral("passwordHash")).toString().toLatin1());
+    QCOMPARE(savedSalt.size(), 16);
+    QCOMPARE(savedHash.size(), 32);
+    QCOMPARE(savedDepositor.value(QStringLiteral("passwordKdfIterations")).toInt(), 210000);
+    QCOMPARE(savedDepositor.value(QStringLiteral("passwordKdfAlgorithm")).toString(),
+             Depositor::supportedPasswordKdfAlgorithm());
+    QVERIFY(!bankJson.contains(oldPassword.toUtf8()));
+    QVERIFY(!bankJson.contains(newPassword.toUtf8()));
+
+    QFile auditFile(QDir(temporaryDirectory.path()).filePath(QStringLiteral("audit/E03.audit.json")));
+    QVERIFY(auditFile.open(QIODevice::ReadOnly));
+    const QByteArray auditJson = auditFile.readAll();
+    auditFile.close();
+    const QJsonDocument auditDocument = QJsonDocument::fromJson(auditJson, &parseError);
+    QCOMPARE(parseError.error, QJsonParseError::NoError);
+    QVERIFY(auditDocument.isObject());
+    const QJsonArray savedRecords = auditDocument.object()
+                                       .value(QStringLiteral("records")).toArray();
+    QVERIFY(!savedRecords.isEmpty());
+    for (const QJsonValue &record : savedRecords) {
+        QCOMPARE(record.toObject().value(QStringLiteral("employeeId")).toString(),
+                 QStringLiteral("E03"));
+    }
+    QVERIFY(!auditJson.contains(oldPassword.toUtf8()));
+    QVERIFY(!auditJson.contains(newPassword.toUtf8()));
+    const QStringList dataEntries = QDir(temporaryDirectory.path())
+                                        .entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+    QCOMPARE(dataEntries, (QStringList{QStringLiteral("audit"),
+                                      QStringLiteral("bank_data.json"),
+                                      QStringLiteral("employees.dat")}));
 
     // 重启窗口后再次通过密码登录，验证 UI 操作已由服务层即时保存。
     MainWindow restarted(makeService(temporaryDirectory.path(), &now));

@@ -67,11 +67,6 @@ public:
         return QStringLiteral(".audit.json");
     }
 
-    QString displayName() const override
-    {
-        return QStringLiteral("业务测试编码器");
-    }
-
     bool encode(const QByteArray &plainJson,
                 QByteArray *encodedData,
                 QString *errorMessage) const override
@@ -168,7 +163,6 @@ private slots:
     void initializesEmployeesAndEnforcesSessionOrder();
     void validatesExistingEmployeeFile();
     void reportsDamagedCoreDataAtInitialization();
-    void refusesInitializationWhenEncryptedKeyIsMissing();
     void opensAccountAndPersistsSecureCredentials();
     void locksRepeatedPasswordFailuresForSixtySeconds();
     void createsIndependentFixedDeposits();
@@ -254,38 +248,6 @@ void BankServiceTest::reportsDamagedCoreDataAtInitialization()
              QByteArray("{broken-json"));
 }
 
-void BankServiceTest::refusesInitializationWhenEncryptedKeyIsMissing()
-{
-#ifndef BANK_HAS_OPENSSL
-    QSKIP("当前是无 OpenSSL 的明文兼容构建", nullptr);
-#else
-    QTemporaryDir temporaryDirectory;
-    QVERIFY(temporaryDirectory.isValid());
-    const auto writerManager = std::make_shared<FileManager>(temporaryDirectory.path());
-    BankService writer(writerManager, [] {
-        return QDateTime(QDate(2026, 1, 1), QTime(9, 0));
-    });
-    QVERIFY(writer.initialize().success);
-    QVERIFY(writer.enterEmployeeSession(QStringLiteral("E03")).success);
-    const OpenAccountResult opened = writer.openAccount(
-        QStringLiteral("加密测试"), QStringLiteral("测试地址"),
-        QStringLiteral("SafePass123"), QStringLiteral("SafePass123"));
-    QVERIFY(opened.status.success);
-    const QByteArray encryptedData = readFile(writerManager->dataFilePath());
-
-    const QString keyPath = security::SecurityUtils::masterKeyPath(
-        temporaryDirectory.path());
-    QVERIFY(QFile::remove(keyPath));
-    BankService restarted(std::make_shared<FileManager>(temporaryDirectory.path()));
-    const ServiceResult result = restarted.initialize();
-    QCOMPARE(result.error, ServiceError::DataLoadFailure);
-    QVERIFY(result.message.contains(QStringLiteral("主密钥缺失")));
-    QVERIFY(!restarted.isInitialized());
-    QVERIFY(!QFileInfo::exists(keyPath));
-    QCOMPARE(readFile(writerManager->dataFilePath()), encryptedData);
-#endif
-}
-
 void BankServiceTest::opensAccountAndPersistsSecureCredentials()
 {
     ServiceHarness harness;
@@ -333,6 +295,13 @@ void BankServiceTest::opensAccountAndPersistsSecureCredentials()
     const OpenAccountResult second = restarted.openAccount(
         QStringLiteral("李四"), QStringLiteral("北京市"), password, password);
     QCOMPARE(second.accountNumber, QStringLiteral("100002"));
+    QVERIFY(second.status.success);
+    const Depositor *firstRestored = restarted.state().findDepositor(opened.accountNumber);
+    const Depositor *secondRestored = restarted.state().findDepositor(second.accountNumber);
+    QVERIFY(firstRestored);
+    QVERIFY(secondRestored);
+    QVERIFY(firstRestored->passwordSalt() != secondRestored->passwordSalt());
+    QVERIFY(firstRestored->passwordHash() != secondRestored->passwordHash());
 }
 
 void BankServiceTest::locksRepeatedPasswordFailuresForSixtySeconds()
