@@ -89,7 +89,7 @@ void WithdrawDialog::refreshPreview()
     previewValid_ = true;
     ui->withdrawKindLabel->setText(
         preview.calculation.kind == bank::WithdrawalKind::Early
-            ? QStringLiteral("提前支取（未到期部分按活期规则计息）")
+            ? QStringLiteral("提前支取（提前支取部分按年利率 0.05% 计息，剩余本金利率不变)")
             : QStringLiteral("到期支取"));
     ui->withdrawInterestLabel->setText(
         bank::MoneyUtils::formatCents(preview.calculation.interestCents));

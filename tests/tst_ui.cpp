@@ -19,6 +19,8 @@
 #include <QDir>
 #include <QFile>
 #include <QHeaderView>
+#include <QHash>
+#include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -66,6 +68,47 @@ void showAndProcess(MainWindow *window)
     window->show();
     QApplication::processEvents();
 }
+
+bool hasSelectedDeposit(QTableView *table, const QString &depositId)
+{
+    const QModelIndex current = table->currentIndex();
+    return current.isValid()
+           && table->model()->index(current.row(), 0).data(Qt::UserRole).toString() == depositId
+           && table->selectionModel()->selectedRows().size() == 1
+           && table->selectionModel()->isRowSelected(current.row(), QModelIndex());
+}
+
+// 只使核心数据保存失败，审计仍正常，验证失败刷新不会丢掉操作对象。
+class FailingCoreCodec final : public DataCodec
+{
+public:
+    bool rejectCoreSave = false;
+
+    QString fileName() const override { return codec_.fileName(); }
+    QString auditFileSuffix() const override { return codec_.auditFileSuffix(); }
+
+    bool encode(const QByteArray &plainJson, QByteArray *encodedData,
+                QString *errorMessage) const override
+    {
+        if (rejectCoreSave
+            && QJsonDocument::fromJson(plainJson).object().contains(QStringLiteral("depositors"))) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("测试核心数据保存失败");
+            }
+            return false;
+        }
+        return codec_.encode(plainJson, encodedData, errorMessage);
+    }
+
+    bool decode(const QByteArray &encodedData, QByteArray *plainJson,
+                QString *errorMessage) const override
+    {
+        return codec_.decode(encodedData, plainJson, errorMessage);
+    }
+
+private:
+    PlainJsonCodec codec_;
+};
 
 bool hasReadableDepositColumns(QTableView *tableView)
 {
@@ -135,6 +178,11 @@ private slots:
     void validatesDialogInputsBeforeAccepting();
     void completesMainWorkflowThroughUiConnections();
     void filtersClosedDepositsAndDisablesWithdrawal();
+    void preservesSelectionForPartialWithdrawal_data();
+    void preservesSelectionForPartialWithdrawal();
+    void preservesSelectionAfterServiceFailure_data();
+    void preservesSelectionAfterServiceFailure();
+    void clearsSelectionAcrossSessions();
 };
 
 void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
@@ -244,10 +292,28 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
     QCOMPARE(requiredChild<QLabel>(&window, "auditActionLabel")->text(),
              QStringLiteral("操作类型"));
     auto *auditFilter = requiredChild<QComboBox>(&window, "auditActionComboBox");
-    QCOMPARE(auditFilter->itemText(0), QStringLiteral("全部操作"));
-    const int depositFilterIndex = auditFilter->findData(QStringLiteral("DEPOSIT"));
-    QVERIFY(depositFilterIndex >= 0);
-    QCOMPARE(auditFilter->itemText(depositFilterIndex), QStringLiteral("新增存款"));
+    const QStringList expectedActions{
+        QString(), QStringLiteral("LOGIN"), QStringLiteral("OPEN_ACCOUNT"),
+        QStringLiteral("DEPOSIT"), QStringLiteral("EARLY_WITHDRAW"),
+        QStringLiteral("MATURED_WITHDRAW"), QStringLiteral("UPDATE_PROFILE"),
+        QStringLiteral("CHANGE_PASSWORD"), QStringLiteral("REPORT_LOSS"),
+        QStringLiteral("UNFREEZE_ACCOUNT"), QStringLiteral("CORE_DATA_SAVE")};
+    const QStringList expectedTexts{
+        QStringLiteral("全部操作"), QStringLiteral("储户登录"), QStringLiteral("开户"),
+        QStringLiteral("新增存款"), QStringLiteral("提前支取"), QStringLiteral("到期支取"),
+        QStringLiteral("修改资料"), QStringLiteral("修改密码"), QStringLiteral("账户挂失"),
+        QStringLiteral("解除挂失"), QStringLiteral("核心数据保存")};
+    QCOMPARE(auditFilter->count(), expectedActions.size());
+    QCOMPARE(auditFilter->currentIndex(), 0);
+    for (int index = 0; index < auditFilter->count(); ++index) {
+        QCOMPARE(auditFilter->itemText(index), expectedTexts.at(index));
+        QCOMPARE(auditFilter->itemData(index).toString(), expectedActions.at(index));
+    }
+    for (QTableView *table : {depositsTable, transactionsTable, depositorsTable,
+                             reserveTable, auditTable}) {
+        QVERIFY(table->verticalHeader()->isHidden());
+        QVERIFY(!table->horizontalHeader()->stretchLastSection());
+    }
 
     DepositDialog depositDialog(now.date());
     auto *termGroup = requiredChild<QButtonGroup>(&depositDialog,
@@ -262,6 +328,8 @@ void MainWindowTest::definesRequiredDesignerControlsAndDefaults()
     QVERIFY(requiredChild<QObject>(&depositDialog, "depositMaturityDateLabel"));
 
     PasswordDialog passwordDialog;
+    QCOMPARE(requiredChild<QLabel>(&passwordDialog, "passwordMessageLabel")->text(),
+             QStringLiteral("修改成功后，新密码将安全保存。"));
     QCOMPARE(requiredChild<QLineEdit>(&passwordDialog, "currentPasswordEdit")->echoMode(),
              QLineEdit::Password);
     QCOMPARE(requiredChild<QLineEdit>(&passwordDialog, "newPasswordEdit")->echoMode(),
@@ -422,6 +490,7 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QCOMPARE(deposits->model()->rowCount(), 1);
         QVERIFY(hasReadableDepositColumns(deposits));
         QVERIFY(!deposits->horizontalHeader()->stretchLastSection());
+        deposits->setCurrentIndex(deposits->model()->index(0, 0));
 
         bool secondDepositDialogHandled = false;
         QTimer::singleShot(0, &window, [&secondDepositDialogHandled] {
@@ -500,8 +569,11 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QCOMPARE(deposits->model()->index(0, 2).data().toString(),
                  QStringLiteral("¥600.00"));
         QCOMPARE(transactions->model()->rowCount(), 3);
-        QVERIFY(!deposits->currentIndex().isValid());
-        QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
+        QVERIFY(hasSelectedDeposit(deposits, QStringLiteral("FD000001")));
+        QVERIFY(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
+
+        // 后续账户级操作应保留第二笔，不能以默认选首行代替按编号恢复。
+        deposits->setCurrentIndex(deposits->model()->index(1, 0));
 
         bool profileDialogHandled = false;
         QTimer::singleShot(0, &window, [&profileDialogHandled] {
@@ -518,6 +590,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         });
         requiredChild<QPushButton>(&window, "editProfileButton")->click();
         QVERIFY(profileDialogHandled);
+        QVERIFY(hasSelectedDeposit(deposits, QStringLiteral("FD000002")));
+        QVERIFY(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
         QVERIFY(requiredChild<QLabel>(&window, "depositorNameLabel")
                     ->text()
                     .contains(QStringLiteral("张三丰")));
@@ -536,6 +610,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         });
         requiredChild<QPushButton>(&window, "changePasswordButton")->click();
         QVERIFY(passwordDialogHandled);
+        QVERIFY(hasSelectedDeposit(deposits, QStringLiteral("FD000002")));
+        QVERIFY(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
         QVERIFY(requiredChild<QLabel>(&window, "accountMessageLabel")
                     ->text()
                     .contains(QStringLiteral("密码修改成功")));
@@ -559,6 +635,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         requiredChild<QPushButton>(&window, "reportLossButton")->click();
         QVERIFY(lossConfirmed);
         QVERIFY(lossButtonLabelsVerified);
+        QVERIFY(!deposits->currentIndex().isValid());
+        QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
         QVERIFY(requiredChild<QLabel>(&window, "accountStatusLabel")
                     ->text()
                     .contains(QStringLiteral("已挂失")));
@@ -566,6 +644,9 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QVERIFY(!requiredChild<QPushButton>(&window, "editProfileButton")->isEnabled());
         QVERIFY(requiredChild<QPushButton>(&window, "unfreezeAccountButton")->isEnabled());
 
+        deposits->setCurrentIndex(deposits->model()->index(1, 0));
+        QVERIFY(hasSelectedDeposit(deposits, QStringLiteral("FD000002")));
+        QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
         bool failedUnfreezeDialogHandled = false;
         QTimer::singleShot(0, &window, [&failedUnfreezeDialogHandled] {
             QWidget *dialog = QApplication::activeModalWidget();
@@ -579,6 +660,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         });
         requiredChild<QPushButton>(&window, "unfreezeAccountButton")->click();
         QVERIFY(failedUnfreezeDialogHandled);
+        QVERIFY(hasSelectedDeposit(deposits, QStringLiteral("FD000002")));
+        QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
         QVERIFY(requiredChild<QLabel>(&window, "accountStatusLabel")
                     ->text()
                     .contains(QStringLiteral("已挂失")));
@@ -599,6 +682,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         });
         requiredChild<QPushButton>(&window, "unfreezeAccountButton")->click();
         QVERIFY(unfreezeDialogHandled);
+        QVERIFY(hasSelectedDeposit(deposits, QStringLiteral("FD000002")));
+        QVERIFY(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
         QVERIFY(requiredChild<QLabel>(&window, "accountStatusLabel")
                     ->text()
                     .contains(QStringLiteral("正常")));
@@ -606,6 +691,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         requiredChild<QPushButton>(&window, "logoutDepositorButton")->click();
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("workspacePage"));
         QCOMPARE(deposits->model()->rowCount(), 0);
+        QVERIFY(!deposits->currentIndex().isValid());
+        QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
         QCOMPARE(transactions->model()->rowCount(), 0);
         QVERIFY(!requiredChild<QPushButton>(&window, "newDepositButton")->isEnabled());
         QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
@@ -686,6 +773,11 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("auditLogPage"));
         auto *auditTable = requiredChild<QTableView>(&window, "auditLogTableView");
         QVERIFY(auditTable->model()->rowCount() >= 11);
+        const int totalAuditRows = auditTable->model()->rowCount();
+        QHash<QString, int> auditActionCounts;
+        for (int row = 0; row < totalAuditRows; ++row) {
+            ++auditActionCounts[auditTable->model()->index(row, 3).data().toString()];
+        }
         QVERIFY(auditTable->columnWidth(0) >= 170);
         QVERIFY(auditTable->columnWidth(1) >= 70);
         QVERIFY(auditTable->columnWidth(2) >= 100);
@@ -729,6 +821,20 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
         }
         QVERIFY(sawSuccessfulLogin);
         QVERIFY(sawFailedLogin);
+
+        // 逐项检查 Designer 显示文字关联的操作码仍筛出相同业务记录。
+        for (int index = 0; index < auditFilter->count(); ++index) {
+            auditFilter->setCurrentIndex(index);
+            requiredChild<QPushButton>(&window, "refreshAuditButton")->click();
+            const QString actionText = auditFilter->itemText(index);
+            QCOMPARE(auditTable->model()->rowCount(),
+                     index == 0 ? totalAuditRows : auditActionCounts.value(actionText));
+            if (index != 0) {
+                for (int row = 0; row < auditTable->model()->rowCount(); ++row) {
+                    QCOMPARE(auditTable->model()->index(row, 3).data().toString(), actionText);
+                }
+            }
+        }
 
         requiredChild<QPushButton>(&window, "auditLogBackButton")->click();
         requiredChild<QPushButton>(&window, "switchEmployeeButton")->click();
@@ -802,6 +908,8 @@ void MainWindowTest::completesMainWorkflowThroughUiConnections()
     requiredChild<QLineEdit>(&restarted, "accountPasswordEdit")->setText(newPassword);
     requiredChild<QPushButton>(&restarted, "accountLoginButton")->click();
     QCOMPARE(stack->currentWidget()->objectName(), QStringLiteral("accountCenterPage"));
+    QVERIFY(requiredChild<QTableView>(&restarted, "depositsTableView")
+                ->selectionModel()->selectedRows().isEmpty());
     QVERIFY(requiredChild<QLabel>(&restarted, "depositorNameLabel")
                 ->text()
                 .contains(QStringLiteral("张三丰")));
@@ -835,6 +943,8 @@ void MainWindowTest::filtersClosedDepositsAndDisablesWithdrawal()
                                                                  DepositTerm::OneYear);
     QVERIFY(deposited.status.success);
     QVERIFY(setupService.withdraw(deposited.depositId, 50000).status.success);
+    const DepositResult activeDeposit = setupService.addFixedDeposit(80000, DepositTerm::ThreeYears);
+    QVERIFY(activeDeposit.status.success);
 
     MainWindow window(makeService(temporaryDirectory.path(), &now));
     showAndProcess(&window);
@@ -847,14 +957,265 @@ void MainWindowTest::filtersClosedDepositsAndDisablesWithdrawal()
 
     auto *deposits = requiredChild<QTableView>(&window, "depositsTableView");
     auto *showClosed = requiredChild<QCheckBox>(&window, "showClosedDepositsCheckBox");
-    QCOMPARE(deposits->model()->rowCount(), 0);
-    QVERIFY(!showClosed->isChecked());
-    showClosed->setChecked(true);
     QCOMPARE(deposits->model()->rowCount(), 1);
+    QVERIFY(!showClosed->isChecked());
+    deposits->selectionModel()->clear();
+    QVERIFY(!deposits->currentIndex().isValid());
+    showClosed->setChecked(true);
+    QCOMPARE(deposits->model()->rowCount(), 2);
+    QVERIFY(!deposits->currentIndex().isValid());
     QCOMPARE(deposits->model()->index(0, 2).data().toString(), QStringLiteral("¥0.00"));
     deposits->setCurrentIndex(deposits->model()->index(0, 0));
     QApplication::processEvents();
     QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
+
+    // 隐藏选中的结清存款时，不得转而选中另一笔仍可见存款。
+    showClosed->setChecked(false);
+    QCOMPARE(deposits->model()->rowCount(), 1);
+    QVERIFY(!deposits->currentIndex().isValid());
+    QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
+    QVERIFY(!requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
+
+    // 同一未结清存款的行号随过滤变化，恢复必须以 depositId 为准。
+    deposits->setCurrentIndex(deposits->model()->index(0, 0));
+    showClosed->setChecked(true);
+    QVERIFY(hasSelectedDeposit(deposits, activeDeposit.depositId));
+    QCOMPARE(deposits->currentIndex().row(), 1);
+    QVERIFY(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
+    showClosed->setChecked(false);
+    QVERIFY(hasSelectedDeposit(deposits, activeDeposit.depositId));
+    QCOMPARE(deposits->currentIndex().row(), 0);
+    QVERIFY(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled());
+}
+
+void MainWindowTest::preservesSelectionForPartialWithdrawal_data()
+{
+    QTest::addColumn<bool>("matured");
+    QTest::addColumn<bool>("showClosed");
+    QTest::newRow("early-hide-closed") << false << false;
+    QTest::newRow("early-show-closed") << false << true;
+    QTest::newRow("matured-hide-closed") << true << false;
+    QTest::newRow("matured-show-closed") << true << true;
+}
+
+void MainWindowTest::preservesSelectionForPartialWithdrawal()
+{
+    QFETCH(bool, matured);
+    QFETCH(bool, showClosed);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QDateTime now(QDate(2026, 1, 1), QTime(9, 0));
+    const QString password = QStringLiteral("SafePass123");
+    auto service = makeService(directory.path(), &now);
+    QVERIFY(service->initialize().success);
+    QVERIFY(service->enterEmployeeSession(QStringLiteral("E03")).success);
+    const auto opened = service->openAccount(QStringLiteral("李四"), QStringLiteral("北京"),
+                                             password, password);
+    QVERIFY(opened.status.success);
+    QVERIFY(service->loginDepositor(opened.accountNumber, password).success);
+    QVERIFY(service->addFixedDeposit(100000, DepositTerm::OneYear).status.success);
+    const auto target = service->addFixedDeposit(100000, DepositTerm::OneYear);
+    QVERIFY(target.status.success);
+    now = now.addDays(matured ? 365 : 30);
+
+    MainWindow window(std::move(service));
+    showAndProcess(&window);
+    requiredChild<QLineEdit>(&window, "employeeIdEdit")->setText(QStringLiteral("E03"));
+    requiredChild<QPushButton>(&window, "employeeEnterButton")->click();
+    requiredChild<QPushButton>(&window, "depositorLoginButton")->click();
+    requiredChild<QLineEdit>(&window, "accountNumberEdit")->setText(opened.accountNumber);
+    requiredChild<QLineEdit>(&window, "accountPasswordEdit")->setText(password);
+    requiredChild<QPushButton>(&window, "accountLoginButton")->click();
+    auto *deposits = requiredChild<QTableView>(&window, "depositsTableView");
+    auto *withdrawButton = requiredChild<QPushButton>(&window, "withdrawSelectedButton");
+    QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
+    requiredChild<QCheckBox>(&window, "showClosedDepositsCheckBox")->setChecked(showClosed);
+    deposits->setCurrentIndex(deposits->model()->index(1, 0));
+
+    const auto withdraw = [&](const QString &amount) {
+        bool confirmed = false;
+        QTimer::singleShot(0, &window, [&] {
+            QWidget *dialog = QApplication::activeModalWidget();
+            requiredChild<QLineEdit>(dialog, "withdrawAmountEdit")->setText(amount);
+            auto *confirm = requiredChild<QPushButton>(dialog, "confirmWithdrawButton");
+            confirmed = confirm->isEnabled();
+            confirm->click();
+        });
+        withdrawButton->click();
+        return confirmed;
+    };
+
+    QVERIFY(withdraw(QStringLiteral("400.00")));
+    QVERIFY(hasSelectedDeposit(deposits, target.depositId));
+    QCOMPARE(deposits->currentIndex().data(Qt::UserRole + 1).toLongLong(), 60000);
+    QVERIFY(withdrawButton->isEnabled());
+    auto *transactions = requiredChild<QTableView>(&window, "transactionsTableView");
+    QCOMPARE(transactions->model()->rowCount(), 3);
+    QVERIFY(transactions->model()->index(2, 3).data().toString().contains(
+        matured ? QStringLiteral("到期") : QStringLiteral("提前")));
+
+    QVERIFY(withdraw(QStringLiteral("600.00")));
+    QCOMPARE(transactions->model()->rowCount(), 4);
+    QCOMPARE(deposits->model()->rowCount(), showClosed ? 2 : 1);
+    QVERIFY(!deposits->currentIndex().isValid());
+    QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
+    QVERIFY(!withdrawButton->isEnabled());
+    QCOMPARE(deposits->model()->index(0, 0).data(Qt::UserRole + 1).toLongLong(), 100000);
+    if (showClosed) {
+        QCOMPARE(deposits->model()->index(1, 0).data(Qt::UserRole + 1).toLongLong(), 0);
+    }
+}
+
+void MainWindowTest::preservesSelectionAfterServiceFailure_data()
+{
+    QTest::addColumn<QString>("operation");
+    for (const char *operation : {"deposit", "withdraw", "profile", "password", "loss", "unfreeze"}) {
+        QTest::newRow(operation) << QString::fromLatin1(operation);
+    }
+}
+
+void MainWindowTest::preservesSelectionAfterServiceFailure()
+{
+    QFETCH(QString, operation);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QDateTime now(QDate(2026, 1, 1), QTime(9, 0));
+    const QString password = QStringLiteral("SafePass123");
+    const auto codec = std::make_shared<FailingCoreCodec>();
+    const auto manager = std::make_shared<FileManager>(directory.path(), codec);
+    auto service = std::make_unique<BankService>(manager, [&now] { return now; });
+    QVERIFY(service->initialize().success);
+    QVERIFY(service->enterEmployeeSession(QStringLiteral("E03")).success);
+    const auto opened = service->openAccount(QStringLiteral("李四"), QStringLiteral("北京"),
+                                             password, password);
+    QVERIFY(opened.status.success);
+    QVERIFY(service->loginDepositor(opened.accountNumber, password).success);
+    QVERIFY(service->addFixedDeposit(100000, DepositTerm::OneYear).status.success);
+    const auto target = service->addFixedDeposit(200000, DepositTerm::ThreeYears);
+    QVERIFY(target.status.success);
+    const bool lost = operation == QStringLiteral("unfreeze");
+    if (lost) {
+        QVERIFY(service->reportLoss().success);
+    }
+
+    MainWindow window(std::move(service));
+    showAndProcess(&window);
+    requiredChild<QLineEdit>(&window, "employeeIdEdit")->setText(QStringLiteral("E03"));
+    requiredChild<QPushButton>(&window, "employeeEnterButton")->click();
+    requiredChild<QPushButton>(&window, "depositorLoginButton")->click();
+    requiredChild<QLineEdit>(&window, "accountNumberEdit")->setText(opened.accountNumber);
+    requiredChild<QLineEdit>(&window, "accountPasswordEdit")->setText(password);
+    requiredChild<QPushButton>(&window, "accountLoginButton")->click();
+    auto *deposits = requiredChild<QTableView>(&window, "depositsTableView");
+    deposits->setCurrentIndex(deposits->model()->index(1, 0));
+    codec->rejectCoreSave = true;
+
+    const char *buttonName = operation == QStringLiteral("deposit") ? "newDepositButton"
+                             : operation == QStringLiteral("withdraw") ? "withdrawSelectedButton"
+                             : operation == QStringLiteral("profile") ? "editProfileButton"
+                             : operation == QStringLiteral("password") ? "changePasswordButton"
+                             : lost ? "unfreezeAccountButton" : "reportLossButton";
+    bool confirmed = false;
+    QTimer::singleShot(0, &window, [&] {
+        QWidget *dialog = QApplication::activeModalWidget();
+        if (operation == QStringLiteral("loss")) {
+            auto *confirmation = qobject_cast<QMessageBox *>(dialog);
+            if (confirmation) {
+                confirmation->button(QMessageBox::Yes)->click();
+                confirmed = true;
+            }
+            return;
+        }
+        const char *confirmName = nullptr;
+        if (operation == QStringLiteral("deposit")) {
+            requiredChild<QLineEdit>(dialog, "depositAmountEdit")->setText(QStringLiteral("100.00"));
+            confirmName = "confirmDepositButton";
+        } else if (operation == QStringLiteral("withdraw")) {
+            requiredChild<QLineEdit>(dialog, "withdrawAmountEdit")->setText(QStringLiteral("100.00"));
+            confirmName = "confirmWithdrawButton";
+        } else if (operation == QStringLiteral("profile")) {
+            requiredChild<QLineEdit>(dialog, "profileNameEdit")->setText(QStringLiteral("新姓名"));
+            confirmName = "confirmProfileButton";
+        } else if (operation == QStringLiteral("password")) {
+            requiredChild<QLineEdit>(dialog, "currentPasswordEdit")->setText(password);
+            requiredChild<QLineEdit>(dialog, "newPasswordEdit")->setText(QStringLiteral("NewPass456"));
+            requiredChild<QLineEdit>(dialog, "confirmNewPasswordEdit")->setText(QStringLiteral("NewPass456"));
+            confirmName = "confirmPasswordButton";
+        } else {
+            requiredChild<QLineEdit>(dialog, "unfreezePasswordEdit")->setText(password);
+            confirmName = "confirmUnfreezeButton";
+        }
+        auto *confirm = requiredChild<QPushButton>(dialog, confirmName);
+        confirmed = confirm->isEnabled();
+        confirm->click();
+    });
+    requiredChild<QPushButton>(&window, buttonName)->click();
+    QVERIFY(confirmed);
+    QVERIFY(requiredChild<QLabel>(&window, "accountMessageLabel")->text().contains(QStringLiteral("保存失败")));
+    QCOMPARE(deposits->model()->rowCount(), 2);
+    QVERIFY(hasSelectedDeposit(deposits, target.depositId));
+    QCOMPARE(deposits->currentIndex().data(Qt::UserRole + 1).toLongLong(), 200000);
+    QCOMPARE(requiredChild<QPushButton>(&window, "withdrawSelectedButton")->isEnabled(), !lost);
+}
+
+void MainWindowTest::clearsSelectionAcrossSessions()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QDateTime now(QDate(2026, 1, 1), QTime(9, 0));
+    const QString password = QStringLiteral("SafePass123");
+    auto service = makeService(directory.path(), &now);
+    QVERIFY(service->initialize().success);
+    QVERIFY(service->enterEmployeeSession(QStringLiteral("E03")).success);
+    QStringList accounts;
+    for (int index = 0; index < 2; ++index) {
+        const auto opened = service->openAccount(QStringLiteral("储户%1").arg(index),
+                                                 QStringLiteral("北京"), password, password);
+        QVERIFY(opened.status.success);
+        accounts.append(opened.accountNumber);
+        QVERIFY(service->loginDepositor(opened.accountNumber, password).success);
+        QVERIFY(service->addFixedDeposit(100000, DepositTerm::OneYear).status.success);
+    }
+    MainWindow window(std::move(service));
+    showAndProcess(&window);
+    requiredChild<QLineEdit>(&window, "employeeIdEdit")->setText(QStringLiteral("E03"));
+    requiredChild<QPushButton>(&window, "employeeEnterButton")->click();
+    auto *deposits = requiredChild<QTableView>(&window, "depositsTableView");
+    auto *withdrawButton = requiredChild<QPushButton>(&window, "withdrawSelectedButton");
+    const auto login = [&](const QString &account) {
+        requiredChild<QPushButton>(&window, "depositorLoginButton")->click();
+        requiredChild<QLineEdit>(&window, "accountNumberEdit")->setText(account);
+        requiredChild<QLineEdit>(&window, "accountPasswordEdit")->setText(password);
+        requiredChild<QPushButton>(&window, "accountLoginButton")->click();
+    };
+    login(accounts.first());
+    // Qt 聚焦表格时可能建立键盘当前行；整行选择不得继承上一会话。
+    QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
+    deposits->setCurrentIndex(deposits->model()->index(0, 0));
+    QVERIFY(withdrawButton->isEnabled());
+    requiredChild<QAction>(&window, "actionReturnWorkspace")->trigger();
+    login(accounts.last());
+    QCOMPARE(deposits->model()->index(0, 0).data(Qt::UserRole).toString(), QStringLiteral("FD000002"));
+    QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
+    QVERIFY(!hasSelectedDeposit(deposits, QStringLiteral("FD000001")));
+
+    deposits->setCurrentIndex(deposits->model()->index(0, 0));
+    requiredChild<QPushButton>(&window, "logoutDepositorButton")->click();
+    QCOMPARE(deposits->model()->rowCount(), 0);
+    QVERIFY(!deposits->currentIndex().isValid());
+    QVERIFY(!withdrawButton->isEnabled());
+    login(accounts.last());
+    QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
+    deposits->setCurrentIndex(deposits->model()->index(0, 0));
+    requiredChild<QAction>(&window, "actionSwitchEmployee")->trigger();
+    QCOMPARE(deposits->model()->rowCount(), 0);
+    QVERIFY(!deposits->currentIndex().isValid());
+    QVERIFY(!withdrawButton->isEnabled());
+    requiredChild<QLineEdit>(&window, "employeeIdEdit")->setText(QStringLiteral("E04"));
+    requiredChild<QPushButton>(&window, "employeeEnterButton")->click();
+    login(accounts.first());
+    QVERIFY(deposits->selectionModel()->selectedRows().isEmpty());
+    QVERIFY(!hasSelectedDeposit(deposits, QStringLiteral("FD000002")));
 }
 
 QTEST_MAIN(MainWindowTest)

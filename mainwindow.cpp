@@ -215,20 +215,14 @@ void resizeDepositTableColumns(QTableView *tableView)
 void prepareDepositTable(QTableView *tableView)
 {
     QHeaderView *header = tableView->horizontalHeader();
-    header->setStretchLastSection(false);
     header->setSectionResizeMode(QHeaderView::Interactive);
-    tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
-    tableView->setWordWrap(false);
-    tableView->verticalHeader()->setVisible(false);
     resizeDepositTableColumns(tableView);
 }
 
 void prepareTransactionTable(QTableView *tableView)
 {
     QHeaderView *header = tableView->horizontalHeader();
-    header->setStretchLastSection(false);
     header->setSectionResizeMode(QHeaderView::Interactive);
-    tableView->verticalHeader()->setVisible(false);
 
     // 交易字段较固定，保留可拖动宽度并让营业员列吸收窗口剩余空间。
     constexpr std::array<int, 8> columnWidths{150, 180, 150, 110, 115, 115, 115, 90};
@@ -241,9 +235,7 @@ void prepareTransactionTable(QTableView *tableView)
 void prepareDepositorTable(QTableView *tableView)
 {
     QHeaderView *header = tableView->horizontalHeader();
-    header->setStretchLastSection(false);
     header->setSectionResizeMode(QHeaderView::Interactive);
-    tableView->verticalHeader()->setVisible(false);
 
     // 地址最适合随窗口伸缩，其他业务列保持最低可读宽度。
     constexpr std::array<int, 8> columnWidths{115, 120, 260, 85, 120, 105, 100, 135};
@@ -270,11 +262,7 @@ void resizeReserveTableColumns(QTableView *tableView)
 void prepareReserveTable(QTableView *tableView)
 {
     QHeaderView *header = tableView->horizontalHeader();
-    header->setStretchLastSection(false);
     header->setSectionResizeMode(QHeaderView::Interactive);
-    tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
-    tableView->setWordWrap(false);
-    tableView->verticalHeader()->setVisible(false);
     resizeReserveTableColumns(tableView);
 }
 
@@ -297,9 +285,7 @@ void resizeAuditTableColumns(QTableView *tableView)
 void prepareAuditTable(QTableView *tableView)
 {
     QHeaderView *header = tableView->horizontalHeader();
-    header->setStretchLastSection(false);
     header->setSectionResizeMode(QHeaderView::Interactive);
-    tableView->verticalHeader()->setVisible(false);
     resizeAuditTableColumns(tableView);
 }
 
@@ -322,10 +308,11 @@ MainWindow::MainWindow(std::unique_ptr<bank::BankService> service, QWidget *pare
     setupConnections();
 
     ui->forecastBaseDateEdit->setDate(QDate::currentDate());
-    // 下拉框显示中文，itemData 仍保存日志使用的英文动作码。
-    ui->auditActionComboBox->addItem(QStringLiteral("全部操作"), QString());
+    // 固定显示项由 Designer 定义，这里只关联日志筛选使用的英文动作码。
+    ui->auditActionComboBox->setItemData(0, QString());
     for (const auto &[code, text] : auditActionPresentations()) {
-        ui->auditActionComboBox->addItem(text, code);
+        const int index = ui->auditActionComboBox->findText(text);
+        ui->auditActionComboBox->setItemData(index, code);
     }
 
     initializeService();
@@ -400,7 +387,11 @@ void MainWindow::setupConnections()
     connect(ui->showClosedDepositsCheckBox,
             &QCheckBox::toggled,
             this,
-            [this] { refreshAccountCenter(); });
+            [this] {
+                const QString depositId = selectedDepositId();
+                refreshAccountCenter();
+                restoreDepositSelection(depositId);
+            });
     connect(ui->depositsTableView,
             &QTableView::clicked,
             this,
@@ -854,6 +845,20 @@ QString MainWindow::selectedDepositId() const
     return depositsModel_->index(current.row(), 0).data(Qt::UserRole).toString();
 }
 
+void MainWindow::restoreDepositSelection(const QString &depositId)
+{
+    // 在新模型中按稳定编号重新定位，不复用刷新前的 QModelIndex。
+    for (int row = 0; row < depositsModel_->rowCount(); ++row) {
+        const QModelIndex index = depositsModel_->index(row, 0);
+        if (index.data(Qt::UserRole).toString() == depositId) {
+            ui->depositsTableView->selectionModel()->setCurrentIndex(
+                index, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+            break;
+        }
+    }
+    updateAccountActionState();
+}
+
 void MainWindow::createFixedDeposit()
 {
     // 使用服务层业务日期，使界面摘要和可注入时钟下的实际存款日期一致。
@@ -865,9 +870,13 @@ void MainWindow::createFixedDeposit()
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const QString depositId = selectedDepositId();
     const bank::DepositResult result = bankService_->addFixedDeposit(
         dialog.principalCents(), dialog.selectedTerm());
     refreshAccountCenter();
+    if (!result.status.success) {
+        restoreDepositSelection(depositId);
+    }
     showServiceResult(result.status, ui->accountMessageLabel);
 }
 
@@ -886,6 +895,9 @@ void MainWindow::withdrawSelectedDeposit()
     const bank::WithdrawalResult result = bankService_->withdraw(
         depositId, dialog.principalCents());
     refreshAccountCenter();
+    if (!result.status.success || result.remainingPrincipalCents > 0) {
+        restoreDepositSelection(depositId);
+    }
     showServiceResult(result.status, ui->accountMessageLabel);
 }
 
@@ -900,9 +912,11 @@ void MainWindow::editProfile()
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const QString depositId = selectedDepositId();
     const bank::ServiceResult result = bankService_->updateProfile(dialog.name(),
                                                                    dialog.address());
     refreshAccountCenter();
+    restoreDepositSelection(depositId);
     showServiceResult(result, ui->accountMessageLabel);
 }
 
@@ -912,9 +926,11 @@ void MainWindow::changePassword()
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const QString depositId = selectedDepositId();
     const bank::ServiceResult result = bankService_->changePassword(
         dialog.currentPassword(), dialog.newPassword(), dialog.passwordConfirmation());
     refreshAccountCenter();
+    restoreDepositSelection(depositId);
     showServiceResult(result, ui->accountMessageLabel);
 }
 
@@ -936,8 +952,12 @@ void MainWindow::reportLoss()
     if (answer != QMessageBox::Yes) {
         return;
     }
+    const QString depositId = selectedDepositId();
     const bank::ServiceResult result = bankService_->reportLoss();
     refreshAccountCenter();
+    if (!result.success) {
+        restoreDepositSelection(depositId);
+    }
     showServiceResult(result, ui->accountMessageLabel);
 }
 
@@ -947,8 +967,10 @@ void MainWindow::unfreezeAccount()
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const QString depositId = selectedDepositId();
     const bank::ServiceResult result = bankService_->unfreezeAccount(dialog.password());
     refreshAccountCenter();
+    restoreDepositSelection(depositId);
     showServiceResult(result, ui->accountMessageLabel);
 }
 

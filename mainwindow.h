@@ -52,6 +52,7 @@ private:
     void clearAccountPresentation();
     void updateAccountActionState();
     QString selectedDepositId() const;
+    void restoreDepositSelection(const QString &depositId);
     void createFixedDeposit();
     void withdrawSelectedDeposit();
     void editProfile();
