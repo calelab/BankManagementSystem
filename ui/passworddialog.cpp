@@ -1,4 +1,5 @@
 // 修改密码对话框实现：只校验必填项和两次输入一致性。
+#include "ui/theme.h"
 #include "ui/passworddialog.h"
 
 #include "ui_passworddialog.h"
@@ -8,6 +9,7 @@ PasswordDialog::PasswordDialog(QWidget *parent)
     , ui(new Ui::PasswordDialog)
 {
     ui->setupUi(this);
+    bank::ui::styleDialog(this);
     connect(ui->cancelPasswordButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(ui->confirmPasswordButton,
             &QPushButton::clicked,

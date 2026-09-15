@@ -1,4 +1,5 @@
 // 资料编辑对话框实现：在提交前完成姓名和地址的界面级校验。
+#include "ui/theme.h"
 #include "ui/profiledialog.h"
 
 #include "ui_profiledialog.h"
@@ -10,6 +11,7 @@ ProfileDialog::ProfileDialog(const QString &name,
     , ui(new Ui::ProfileDialog)
 {
     ui->setupUi(this);
+    bank::ui::styleDialog(this);
     ui->profileNameEdit->setText(name);
     ui->profileAddressEdit->setText(address);
     connect(ui->cancelProfileButton, &QPushButton::clicked, this, &QDialog::reject);

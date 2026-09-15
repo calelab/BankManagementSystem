@@ -1,0 +1,20 @@
+{
+  "restore_from_archive": [
+    "CMakeLists.txt",
+    "mainwindow.cpp",
+    "mainwindow.h",
+    "ui/depositdialog.cpp",
+    "ui/passworddialog.cpp",
+    "ui/profiledialog.cpp",
+    "ui/unfreezedialog.cpp",
+    "ui/withdrawdialog.cpp"
+  ],
+  "new_theme_files": [
+    "ui/theme.h",
+    "ui/theme.cpp",
+    "assets/navy-gold.qss",
+    "assets/chevron-down.svg",
+    "assets/chevron-up.svg",
+    "assets/check.svg"
+  ]
+}

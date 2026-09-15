@@ -1,4 +1,5 @@
 // 支取对话框实现：随输入刷新只读预览，并在确认时返回合法本金。
+#include "ui/theme.h"
 #include "ui/withdrawdialog.h"
 
 #include "services/bankservice.h"
@@ -17,6 +18,9 @@ WithdrawDialog::WithdrawDialog(bank::BankService *service,
     , depositId_(std::move(depositId))
 {
     ui->setupUi(this);
+    bank::ui::styleDialog(this);
+    ui->withdrawKindLabel->setWordWrap(true);
+    ui->withdrawKindLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     ui->withdrawDepositIdLabel->setText(depositId_);
 
     if (service_) {

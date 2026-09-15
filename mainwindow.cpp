@@ -7,11 +7,13 @@
 #include "ui/profiledialog.h"
 #include "ui/unfreezedialog.h"
 #include "ui/withdrawdialog.h"
+#include "ui/theme.h"
 #include "ui_mainwindow.h"
 #include "utils/moneyutils.h"
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QCalendarWidget>
 #include <QDialog>
 #include <QEvent>
 #include <QHeaderView>
@@ -23,7 +25,10 @@
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStatusBar>
+#include <QStyle>
 #include <QTableView>
+#include <QTabWidget>
+#include <QTextCharFormat>
 
 #include <algorithm>
 #include <array>
@@ -303,7 +308,9 @@ MainWindow::MainWindow(std::unique_ptr<bank::BankService> service, QWidget *pare
     , ui(new Ui::MainWindow)
     , bankService_(std::move(service))
 {
+    bank::ui::applyTheme();
     ui->setupUi(this);
+    setupAppearance();
     setupTableModels();
     setupConnections();
 
@@ -322,6 +329,173 @@ MainWindow::~MainWindow()
 {
     ui->reserveForecastTableView->viewport()->removeEventFilter(this);
     delete ui;
+}
+
+void MainWindow::setupAppearance()
+{
+    using bank::ui::Symbol;
+    ui->centralLayout->setContentsMargins(28, 18, 28, 0);
+    ui->centralLayout->setSpacing(0);
+    for (int index = 0; index < ui->mainStackedWidget->count(); ++index) {
+        if (auto *layout = ui->mainStackedWidget->widget(index)->layout()) {
+            layout->setContentsMargins(8, 22, 8, 20);
+            layout->setSpacing(18);
+        }
+    }
+    for (auto *label : findChildren<QLabel *>()) {
+        if (label->objectName().endsWith(QStringLiteral("TitleLabel"))) {
+            label->setProperty("role", "pageTitle");
+        }
+        if (label->objectName().endsWith(QStringLiteral("MessageLabel"))) {
+            label->setProperty("role", "subtitle");
+            label->setMinimumHeight(24);
+        }
+    }
+    for (auto *button : findChildren<QPushButton *>()) {
+        button->setCursor(Qt::PointingHandCursor);
+    }
+    for (auto *button : {ui->employeeEnterButton, ui->createAccountButton,
+                         ui->accountLoginButton, ui->newDepositButton,
+                         ui->searchDepositorsButton, ui->refreshForecastButton,
+                         ui->refreshAuditButton}) {
+        button->setProperty("tone", "primary");
+    }
+    ui->reportLossButton->setProperty("tone", "danger");
+    for (auto *table : findChildren<QTableView *>()) {
+        table->setAlternatingRowColors(true);
+        table->setShowGrid(false);
+        table->verticalHeader()->setDefaultSectionSize(40);
+        table->setMouseTracking(true);
+    }
+    // 为中文星期标题和日期行留足空间，避免弹出日历被默认尺寸挤压。
+    auto *calendar = ui->forecastBaseDateEdit->calendarWidget();
+    calendar->setMinimumSize(350, 280);
+    QTextCharFormat weekendFormat;
+    weekendFormat.setForeground(QColor("#667F99"));
+    calendar->setWeekdayTextFormat(Qt::Saturday, weekendFormat);
+    calendar->setWeekdayTextFormat(Qt::Sunday, weekendFormat);
+
+    // 登录页保持参考图中的居中构图，避免背景装饰抢占表单视觉。
+    auto *emblem = new QLabel(ui->employeeLoginPage);
+    emblem->setObjectName(QStringLiteral("loginEmblemLabel"));
+    emblem->setPixmap(bank::ui::symbolIcon(Symbol::Bank).pixmap(QSize(52, 52)));
+    emblem->setAlignment(Qt::AlignCenter);
+    emblem->setFixedHeight(64);
+    ui->employeeLoginPageLayout->insertWidget(1, emblem, 0, Qt::AlignHCenter);
+    auto *subtitle = new QLabel(QStringLiteral("营业员入口"), ui->employeeLoginPage);
+    subtitle->setObjectName(QStringLiteral("loginSubtitleLabel"));
+    subtitle->setAlignment(Qt::AlignCenter);
+    ui->employeeLoginPageLayout->insertWidget(3, subtitle);
+    ui->employeeLoginPageLayout->setSpacing(12);
+    ui->employeeLoginPageLayout->setStretch(0, 1);
+    ui->employeeLoginPageLayout->setStretch(ui->employeeLoginPageLayout->count() - 1, 1);
+    ui->employeeLoginGroupBox->setTitle(QString());
+    ui->employeeLoginGroupBox->setFixedWidth(448);
+    ui->employeeLoginGroupBox->setMinimumHeight(248);
+    ui->employeeLoginFormLayout->setContentsMargins(0, 26, 0, 0);
+    ui->employeeLoginFormLayout->setSpacing(16);
+    ui->employeeLoginMessageLabel->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    ui->employeeLoginMessageLabel->setMinimumHeight(42);
+    auto *footer = new QLabel(QStringLiteral("银行储蓄  ·  业务管理"), ui->employeeLoginPage);
+    footer->setObjectName(QStringLiteral("loginFooterLabel"));
+    footer->setAlignment(Qt::AlignCenter);
+    ui->employeeLoginPageLayout->addWidget(footer);
+
+    // 各业务页共享品牌栏；具体业务仍使用原来的页面和信号槽。
+    auto *brandBar = new QWidget(ui->centralWidget);
+    brandBar->setObjectName(QStringLiteral("brandBar"));
+    auto *brandLayout = new QHBoxLayout(brandBar);
+    brandLayout->setContentsMargins(16, 12, 16, 12);
+    brandLayout->setSpacing(12);
+    auto *brandIcon = new QLabel(brandBar);
+    brandIcon->setPixmap(bank::ui::symbolIcon(Symbol::Bank).pixmap(QSize(24, 24)));
+    auto *brandTitle = new QLabel(QStringLiteral("银行储蓄管理系统"), brandBar);
+    brandTitle->setProperty("role", "eyebrow");
+    auto *sectionLabel = new QLabel(brandBar);
+    sectionLabel->setProperty("role", "subtitle");
+    brandLayout->addWidget(brandIcon);
+    brandLayout->addWidget(brandTitle);
+    brandLayout->addStretch();
+    brandLayout->addWidget(sectionLabel);
+    ui->centralLayout->insertWidget(0, brandBar);
+    const auto updateBrand = [this, brandBar, sectionLabel] {
+        auto *page = ui->mainStackedWidget->currentWidget();
+        const bool isEntry = page == ui->employeeLoginPage;
+        // 入口的浅蓝底色随页面切换，内部业务页面使用灰蓝底和白色面板。
+        for (QWidget *surface : {ui->centralWidget, static_cast<QWidget *>(ui->menuBar)}) {
+            surface->setProperty("entry", isEntry);
+            surface->style()->unpolish(surface);
+            surface->style()->polish(surface);
+            surface->update();
+        }
+        brandBar->setVisible(!isEntry);
+        ui->statusBar->setVisible(!isEntry);
+        QString section;
+        for (auto *label : page->findChildren<QLabel *>()) {
+            if (label->property("role") == QStringLiteral("pageTitle")) {
+                section = label->text();
+                break;
+            }
+        }
+        sectionLabel->setText(section);
+    };
+    connect(ui->mainStackedWidget, &QStackedWidget::currentChanged, this, updateBrand);
+    updateBrand();
+
+    for (auto *label : {ui->currentEmployeeLabel, ui->currentDepositorLabel,
+                        ui->auditEmployeeLabel}) {
+        label->setProperty("role", "badge");
+    }
+    auto *workspaceSubtitle = new QLabel(
+        QStringLiteral("账户服务、储户查询与营业管理，从这里开始。"), ui->workspacePage);
+    workspaceSubtitle->setProperty("role", "subtitle");
+    ui->workspacePageLayout->insertWidget(1, workspaceSubtitle);
+    const std::array<std::pair<QPushButton *, Symbol>, 6> navigation{{
+        {ui->openAccountButton, Symbol::Account},
+        {ui->depositorLoginButton, Symbol::Login},
+        {ui->allDepositorsButton, Symbol::Search},
+        {ui->reserveForecastButton, Symbol::Forecast},
+        {ui->auditLogButton, Symbol::Audit},
+        {ui->switchEmployeeButton, Symbol::Switch}}};
+    for (const auto &[button, symbol] : navigation) {
+        button->setProperty("role", "navigation");
+        button->setIcon(bank::ui::symbolIcon(symbol));
+        button->setIconSize(QSize(32, 32));
+        button->setMinimumHeight(128);
+    }
+    ui->workspaceMessageLabel->setText(QStringLiteral("请选择一项业务以继续办理。"));
+
+    // 标题和本金单独成行，账户资料不会与大标题挤在同一行。
+    ui->accountSummaryLayout->removeWidget(ui->accountCenterTitleLabel);
+    ui->accountSummaryLayout->removeWidget(ui->totalPrincipalLabel);
+    auto *accountHeading = new QHBoxLayout;
+    accountHeading->addWidget(ui->accountCenterTitleLabel);
+    accountHeading->addStretch();
+    accountHeading->addWidget(ui->totalPrincipalLabel);
+    ui->accountCenterPageLayout->insertLayout(0, accountHeading);
+    ui->accountSummaryLayout->setSpacing(18);
+    ui->accountSummaryLayout->addStretch();
+    // 标签页给两张数据表共享充足高度，小窗口仍能查看明细和执行操作。
+    ui->accountCenterPageLayout->removeWidget(ui->depositsGroupBox);
+    ui->accountCenterPageLayout->removeWidget(ui->transactionsGroupBox);
+    auto *accountTabs = new QTabWidget(ui->accountCenterPage);
+    accountTabs->setObjectName(QStringLiteral("accountDetailsTabs"));
+    for (auto *panel : {ui->depositsGroupBox, ui->transactionsGroupBox}) {
+        panel->setTitle(QString());
+        panel->setProperty("role", "tabPanel");
+    }
+    accountTabs->addTab(ui->depositsGroupBox, QStringLiteral("定期存款"));
+    accountTabs->addTab(ui->transactionsGroupBox, QStringLiteral("交易记录"));
+    ui->accountCenterPageLayout->insertWidget(2, accountTabs, 1);
+    ui->accountCenterPageLayout->setSpacing(12);
+    ui->openAccountFormLayout->setVerticalSpacing(16);
+    ui->depositorLoginFormLayout->setVerticalSpacing(16);
+    // Designer 当前页可能已提前完成样式计算，设置角色后统一刷新。
+    for (auto *widget : findChildren<QWidget *>()) {
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+        widget->updateGeometry();
+    }
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
@@ -613,11 +787,10 @@ void MainWindow::showServiceResult(const bank::ServiceResult &result, QLabel *ta
     }
     if (targetLabel) {
         targetLabel->setText(message);
-        targetLabel->setStyleSheet(result.success
-                                       ? (result.warningMessage.isEmpty()
-                                              ? QStringLiteral("color: #176b2c;")
-                                              : QStringLiteral("color: #9a6700;"))
-                                       : QStringLiteral("color: #b42318;"));
+        bank::ui::setMessageTone(targetLabel,
+                                 result.success
+                                     ? (result.warningMessage.isEmpty() ? "success" : "warning")
+                                     : "error");
     }
     ui->statusBar->showMessage(message, 8000);
 }

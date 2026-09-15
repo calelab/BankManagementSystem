@@ -1,4 +1,5 @@
 // 新增存款对话框实现：完成界面级输入校验，不复制核心存款业务规则。
+#include "ui/theme.h"
 #include "ui/depositdialog.h"
 
 #include "models/fixeddeposit.h"
@@ -11,6 +12,7 @@ DepositDialog::DepositDialog(const QDate &startDate, QWidget *parent)
     , startDate_(startDate)
 {
     ui->setupUi(this);
+    bank::ui::styleDialog(this);
     connect(ui->cancelDepositButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(ui->confirmDepositButton,
             &QPushButton::clicked,

@@ -114,6 +114,8 @@ target_link_libraries(BankServices
 )
 
 qt_add_library(BankUi STATIC
+    ui/theme.cpp
+    ui/theme.h
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
@@ -132,6 +134,15 @@ qt_add_library(BankUi STATIC
     ui/withdrawdialog.cpp
     ui/withdrawdialog.h
     ui/withdrawdialog.ui
+)
+
+qt_add_resources(BankUi bank_theme
+    PREFIX "/theme"
+    FILES
+        assets/blue-white.qss
+        assets/chevron-down.svg
+        assets/chevron-up.svg
+        assets/check.svg
 )
 
 target_include_directories(BankUi

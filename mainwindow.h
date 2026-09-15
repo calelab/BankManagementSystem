@@ -34,6 +34,7 @@ protected:
 private:
     // 信号槽只负责收集输入和刷新展示，所有业务判断由 BankService 完成。
     void setupConnections();
+    void setupAppearance();
     void setupTableModels();
     void initializeService();
     void updateSessionDisplay();

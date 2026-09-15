@@ -1,0 +1,14 @@
+{
+  "restore_from_archive": [
+    "CMakeLists.txt",
+    "assets/check.svg",
+    "assets/chevron-down.svg",
+    "assets/chevron-up.svg",
+    "assets/navy-gold.qss",
+    "mainwindow.cpp",
+    "ui/theme.cpp"
+  ],
+  "new_theme_files": [
+    "assets/blue-white.qss"
+  ]
+}
